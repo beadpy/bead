@@ -1,0 +1,2 @@
+[console_scripts]
+bead = bead.cli:main

@@ -1,0 +1,499 @@
+# Bead Framework — Tasarım ve Teknik Şartname v0.1
+
+> **Özet:** Bead, web uygulamalarını **tamamen Python ile** geliştirmeyi hedefleyen; **HTML/CSS yazmadan**, **komponent tabanlı**, **dosya-bazlı yönlendirme** ve **Tailwind benzeri inline stil** yaklaşımına sahip **full‑stack** bir framework’tür. Frontend `.bead` dosyalarında Pythonik bir API ile tanımlanır, backend ASGI üzerinde çalışır, event’ler (örn. `onclick`) doğrudan JSON tabanlı API’lere köprülenir. Geliştirici deneyimi için CLI, hot‑reload, ve build sistemi içerir.
+
+---
+
+## 1) Vizyon ve Hedefler
+
+**Vizyon:** Python geliştiricilerine, modern web’i HTML/CSS/JS ayrımı olmadan; **tek dille**, **komponent temelli**, **yüksek üretkenlikte** geliştirme imkânı sağlamak.
+
+**Hedefler**
+
+* **Pythonic UI**: UI tanımları Python fonksiyonlarıyla, okunabilir ve sezgisel.
+* **HTML/CSS yok**: Stil, Tailwind benzeri utility sınıflarıyla **inline**.
+* **Dosya-bazlı routing**: `pages/` içeriği otomatik rotaya dönüşür.
+* **JSON‑öncelikli API**: API’ler varsayılan olarak JSON döndürür.
+* **Sıfır konfigürasyon** (varsayılanlarla): CLI ile `create/dev/build/start`.
+* **Hot‑reload**: Kod değişince sayfa otomatik yenilenir.
+* **Minimal JS runtime**: Olay köprüsü (event bridge) ve kısmi DOM güncellemesi için ince bir katman.
+* **Genişletilebilirlik**: Bileşen ve eklenti mimarisi.
+
+**Kısıtlar (v0.1)**
+
+* Sınırlı bileşen seti (Page, Text, Button, Input, Card, Image, Stack/Row/Col, Link, Form).
+* State, öncelikle **sunucu-tarafı** (session odaklı) tutulur.
+* Realtime/WebSocket opsiyonel ve sonraki sürümlere bırakılabilir.
+
+---
+
+## 2) Temel Tasarım İlkeleri
+
+* **Tek dil, tek zihniyet**: UI + backend tamamen Python’da.
+* **Açık ve sade API**: Az sihir, çok netlik (explicit > implicit).
+* **Kompozisyon**: Her şey bileşen; küçük parçalarla büyük arayüzler.
+* **SSR‑öncelikli**: Sunucu tarafı render; gerektiğinde hafif client etkileşimi.
+* **Güvenlik varsayılanları**: Kaçış (escaping), CSRF, CORS, içerik güvenliği.
+* **Performans**: Stateless işleme, cache, minimal client betiği.
+* **Erişilebilirlik (a11y)**: ARIA nitelikleri ve klavye etkileşimi gözetimi.
+
+---
+
+## 3) Mimarinin Kuşbakışı
+
+```
+Proje → CLI → Dev Server (ASGI) → Router
+                     │            └─ pages/ → SSR
+                     ├─ Watcher (hot reload)
+                     ├─ Compiler/Parser (.bead → Component Tree)
+                     ├─ Renderer (HTML + class)
+                     └─ Event Bridge (fetch/WebSocket) ↔ API (JSON)
+```
+
+**Bileşenler**
+
+* **CLI**: `bead create`, `bead dev`, `bead build`, `bead start`, `bead doctor`.
+* **Dev Server (ASGI)**: Uvicorn/Hypercorn üzerinde Starlette/ya da minimal kendi ASGI.
+* **Parser/Compiler**: `.bead` → Python AST → bileşen ağacı.
+* **Renderer**: Bileşen ağacını HTML + inline utility class’lara dönüştürür.
+* **Event Bridge**: `onclick` gibi event’leri backend’e JSON çağrısına çevirir.
+* **Build Pipeline**: HTML/minification, asset manifest, üretim paketi.
+
+---
+
+## 4) Proje Yapısı ve Dosya Konvansiyonları
+
+```
+myapp/
+├─ pages/
+│  ├─ index.bead          →  /
+│  ├─ about.bead          →  /about
+│  ├─ blog/
+│  │  ├─ [id].bead        →  /blog/:id
+│  │  └─ _layout.bead     →  /blog/* için layout
+│  └─ api/
+│     ├─ data.py          →  GET/POST /api/data (JSON)
+│     └─ users/[id].py    →  /api/users/:id (JSON)
+├─ components/
+│  ├─ navbar.bead
+│  └─ card.bead
+├─ public/                →  statik varlıklar (img, favicon)
+├─ app.py                 →  opsiyonel global ayar/middleware/boot
+├─ bead.config.json       →  tema, port, alias vb.
+└─ requirements.txt / pyproject.toml
+```
+
+**Routing Kuralları**
+
+* `pages/index.bead` → `/`
+* `pages/about.bead` → `/about`
+* `pages/blog/[id].bead` → `/blog/:id`
+* `pages/api/*.py` → `/api/*` JSON endpoint’ler
+* `_layout.bead` → aynı klasör altındaki sayfalara ortak layout
+* `public/` → `/` kökünden statik servis edilir
+
+---
+
+## 5) .bead DSL (Pythonik UI) — Sözdizimi ve Semantik
+
+**Genel**
+
+* `.bead` dosyaları **Python benzeri** sözdizimi kullanır ve bir veya daha fazla **komponent fonksiyonu** dışa vurur.
+* Her sayfa, varsayılan olarak `default()` veya dosya adıyla eşleşen bir fonksiyon sunar.
+* Fonksiyon, bir **Component** döndürür (ör. `Page`, `Card`, `Text`, ...).
+
+**Örnek: `pages/index.bead`**
+
+```python
+from bead.ui import Page, Text, Button, Card, Stack
+
+def default(params, context):
+    return Page(
+        title="Bead Framework",
+        body=[
+            Card(
+                style="max-w-xl mx-auto mt-12 p-6 bg-white shadow-xl rounded-2xl",
+                children=[
+                    Text("Bead ile tamamen Python üzerinden modern web UI!",
+                         style="text-2xl font-bold text-gray-800"),
+                    Text("HTML/CSS yok; Tailwind benzeri inline stiller.",
+                         style="text-gray-600 mt-2"),
+                    Stack(direction="row", gap=12, children=[
+                        Button("Dokümanlar",
+                               href="/docs",
+                               style="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg mt-4"),
+                        Button("API",
+                               href="/api/data",
+                               style="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-lg mt-4")
+                    ])
+                ]
+            )
+        ]
+    )
+```
+
+**Fonksiyon İmzaları**
+
+* `def default(params, context): ...`
+
+  * `params`: rota parametreleri (örn. `[id].bead` → `params["id"]`).
+  * `context`: istek bağlamı (query, headers, session, env, locale).
+
+**Yorumlar**
+
+* Python yorum semantiği (`#`) kullanılır.
+
+**İçe Aktarım**
+
+* `from bead.ui import ...` ile çekirdek bileşenler alınır.
+
+---
+
+## 6) Bileşen Modeli
+
+**Temel Arayüz**
+
+* Her bileşen bir Python sınıfıdır; `.bead` içinde fonksiyonla örneklenir.
+* Ortak argümanlar: `style: str | None`, `children: list[Component] | None`, `id: str | None`, `data: dict | None`.
+
+**Çekirdek Bileşenler (v0.1)**
+
+* `Page(title: str, body: list[Component], meta: dict = {}, style: str = None)`
+* `Text(value: str, style: str = None, as_: str = "p")`  → `as_` ile `h1`, `span` vb.
+* `Button(label: str, style: str = None, onclick: str = None, href: str = None, disable: bool = False)`
+* `Input(name: str, value: str = "", type: str = "text", placeholder: str = "", style: str = None, oninput: str = None, onchange: str = None)`
+* `Image(src: str, alt: str = "", style: str = None)`
+* `Link(label: str, href: str, style: str = None)`
+* `Card(children: list[Component], style: str = None)`
+* `Stack(direction: Literal["row","col"] = "col", gap: int = 8, align: str = "start", justify: str = "start", children=[], style: str = None)`
+* `Form(action: str, method: str = "POST", children: list[Component] = [], style: str = None, onsubmit: str = None)`
+
+**Kompozisyon**
+
+* `.bead` komponentleri `components/` klasöründe yeniden kullanılabilir küçük parçalara ayrılır.
+
+**Örnek: `components/navbar.bead`**
+
+```python
+from bead.ui import Stack, Link
+
+def Navbar():
+    return Stack(direction="row", gap=16, style="p-4 bg-white shadow",
+                 children=[
+                     Link("Bead", href="/", style="font-bold"),
+                     Link("Docs", href="/docs", style="text-gray-600 hover:text-gray-900"),
+                 ])
+```
+
+---
+
+## 7) Stil Sistemi (Tailwind Benzeri Utility Sınıflar)
+
+**İlkeler**
+
+* Ayrı CSS **yok**. Tüm stil, `style="..."` içinde.
+* Söz dizimi Tailwind’e benzer; örn. `bg-indigo-600`, `px-4`, `rounded-lg`, `md:flex`.
+* Varyantlar: `hover:`, `focus:`, `active:`, `disabled:`, `sm:`, `md:`, `lg:`, `dark:`.
+
+**Tema ve Ölçekler**
+
+* `bead.config.json` ile renk paleti, spacing, font, breakpoint’ler özelleştirilebilir.
+
+**Örnek `bead.config.json`**
+
+```json
+{
+  "server": { "port": 3000 },
+  "theme": {
+    "colors": { "primary": "#4f46e5", "secondary": "#64748b" },
+    "spacing": [0,4,8,12,16,24,32],
+    "fontFamily": { "sans": "Inter, ui-sans-serif, system-ui" },
+    "screens": { "sm": "640px", "md": "768px", "lg": "1024px" }
+  },
+  "security": { "csrf": true, "csp": "default-src 'self'" },
+  "aliases": { "bid": "bead" }  
+}
+```
+
+> Not: `aliases.bid → bead` ile `bid build`/`bead build` aynı çalışabilir.
+
+**Sınıf Haritalama**
+
+* Bead, utility sınıflarını **önceden tanımlı CSS**’e map eder (build sırasında üretir); üretimde minimal, kullanılmayan sınıflar **tree-shake** edilir.
+
+**Koşullu Sınıflar**
+
+* `.bead` Python olduğu için koşullu string birleştirme doğal:
+
+```python
+style = "px-4 py-2 rounded " + ("bg-blue-600" if active else "bg-gray-600")
+Button("Kaydet", style=style)
+```
+
+---
+
+## 8) Olay (Event) Sistemi
+
+**İlkeler**
+
+* HTML’e benzer isimler: `onclick`, `oninput`, `onchange`, `onsubmit`, `onmount`.
+* Handler **isimleri string** olarak verilir: `onclick="saveForm"`.
+* Event Bridge, tarayıcıdan **JSON POST** atar: `/_events/saveForm`.
+
+**İstek Şeması**
+
+```json
+{
+  "event": "click",
+  "handler": "saveForm",
+  "element": { "id": "btn1", "dataset": {"productId": "42"} },
+  "params": { "id": "123" },
+  "form": { "username": "cinar", "password": "***" },
+  "session": "<opaque-session-id>"
+}
+```
+
+**Cevap Türleri**
+
+* `{"ok": true}` (no-op)
+* `{"redirect": "/thanks"}`
+* `{"state": {...}}` (sunucu state güncellemesi)
+* `{"patch": "<morphdom-patch>"}` (kısmi DOM güncellemesi; v0.2+)
+
+**Server Tarafı Handler**
+
+* Arama sırası: `pages/api/<handler>.py` → `app.py` içi kayıtlı handler.
+
+**Örnek: `pages/api/saveForm.py`**
+
+```python
+def handler(request):
+    data = request.json()
+    # TODO: doğrulama, iş mantığı
+    return {"ok": True, "redirect": "/thanks"}
+```
+
+---
+
+## 9) Formlar ve Doğrulama (v0.1)
+
+* `Form(action, method, onsubmit)` bileşeni; içindeki `Input` adlarına göre `form` alanı doldurulur.
+* CSRF token, otomatik gizli input olarak enjekte edilir (açık ise).
+* Basit doğrulama yardımcıları: `required`, `min_length`, `pattern` (v0.1 basit; v0.2 şema bazlı).
+
+---
+
+## 10) Routing Ayrıntıları
+
+**Dosya-bazlı yönlendirme**
+
+* Düz dosyalar → düz path.
+* **Dinamik segment**: `[id].bead` → parametre `params["id"]`.
+* **Catch-all**: `[...slug].bead` → `params["slug"]` (liste).
+* **Layout**: `_layout.bead` aynı klasörün çocuklarını sarmalar.
+* **API Rotaları**: `pages/api/*.py` içinde fonksiyon: `def handler(request): ...`
+* **Middleware**: `app.py` içinde `@app.middleware` veya `middleware/` klasörü.
+
+---
+
+## 11) Sunucu & Çalışma Zamanı
+
+* **ASGI** tabanlı (Uvicorn/Hypercorn). `bead dev` ile başlatılır.
+* İstek → Router → `.bead` compile → Render → HTML yanıtı.
+* Event’ler için **hafif runtime** (fetch + queue). WebSocket (v0.3+).
+* Session: Signed cookie veya server store (örn. Redis) (konfigüre edilebilir).
+
+---
+
+## 12) CLI ve Geliştirici Deneyimi
+
+**Komutlar**
+
+```
+bead create <name>      # şablon proje
+bead dev                # dev server + hot reload
+bead build              # üretim derlemesi
+bead start              # prod sunucu (ASGI)
+bead doctor             # ortam kontrolü
+```
+
+**Seçenekler**
+
+* `--port`, `--host`, `--open`, `--verbose`, `--no-hotreload`
+
+**Hot Reload**
+
+* Watcher (watchdog) `.bead` ve `.py` değişikliklerini algılar.
+* Hızlı tam sayfa render; v0.2’de kısmi HMR.
+
+---
+
+## 13) Build Sistemi
+
+* `.bead` → AST → bileşen ağacı → HTML çıktıları.
+* Utility sınıflar → kullanılana göre **purge/tree-shake**.
+* Manifest üretimi (hash’li varlık adları).
+* `public/` doğrudan kopyalanır.
+* Opsiyonel: **Static Export** (etkileşimsiz sayfaları saf HTML olarak yayınlama).
+
+---
+
+## 14) Güvenlik
+
+* **Escaping**: Text içerikleri varsayılan kaçışlı.
+* **CSRF**: Form ve mutasyonlarda token kontrolü.
+* **CORS**: `bead.config.json` üzerinden kısıtlanır.
+* **CSP**: Varsayılan katı politika; inline script nonce.
+* **Rate Limit**: Event ve API çağrıları için basit limit (opsiyonel).
+* **Auth**: v0.2’de basit oturum açma şablonu.
+
+---
+
+## 15) Erişilebilirlik (a11y)
+
+* Semantik `as_` desteği (`Text(as_="h1")`).
+* `aria-*` öznitelikleri ve focus halkası sınıfları (`focus:outline-none focus:ring-2 ...`).
+* Klavye navigasyonu ve `Button(disable=True)` gibi durumlar.
+
+---
+
+## 16) Uluslararasılaştırma (i18n) ve Yerelleştirme (l10n)
+
+* `t(key, **vars)` yardımcı fonksiyonu; `locale` `context` ile gelir.
+* JSON/PO tabanlı çeviri dosyaları (v0.2+).
+
+---
+
+## 17) SEO ve Metadata
+
+* `Page(title, meta={"description": "...", "og:title": "..."})`.
+* SSR sayesinde tarayıcı ve botlar içerik dolu HTML alır.
+* `Link(rel="canonical", href="...")` gibi yardımcılar.
+
+---
+
+## 18) Performans ve Ölçeklenebilirlik
+
+* SSR cache (path + vary).
+* CDN üzerinden `public/` servis.
+* Minimal runtime JS; event köprüsü lazımsa yüklenir.
+* Uvicorn çoklu worker; stateless API’lerle yatay ölçekleme.
+
+---
+
+## 19) Test, Debug ve Gözlemlenebilirlik
+
+* **Unit**: Bileşen render testleri (snapshot).
+* **E2E**: Playwright ile sayfa/etkileşim testleri.
+* **API**: ASGI test client.
+* **Loglama**: İstek log’u, event log’u, hata izi.
+* **DevTools**: Basit overlay (render süresi, event trafiği).
+
+---
+
+## 20) Eklenti/Plugin Modeli (v0.2+)
+
+* Lifecycle hook’ları: `before_render`, `after_render`, `before_event`, `after_event`.
+* Üçüncü parti bileşen paketleri: `pip install bead-ui-forms`.
+
+---
+
+## 21) Dağıtım
+
+* **Geliştirme**: `bead dev`.
+* **Üretim**: `bead build` + `bead start` (ASGI).
+* Docker imaj şablonu; config env üzerinden (PORT, DEBUG, SECRET\_KEY).
+
+---
+
+## 22) Yol Haritası
+
+**v0.1 (MVP)**
+
+* `.bead` parser, SSR renderer.
+* Çekirdek UI: Page/Text/Button/Input/Image/Card/Stack/Form/Link.
+* Dosya‑bazlı routing, `pages/api` JSON endpoint’leri.
+* CLI (`create/dev/build/start`), hot‑reload.
+* Temel güvenlik (escape, CSRF), tema/utility mapping.
+
+**v0.2**
+
+* Kısmi DOM patch (morph), form doğrulama şeması, i18n temel.
+* Plugin hook’ları, auth şablonları, middleware API.
+
+**v0.3**
+
+* Realtime (WebSocket), bildirim kanalı, optimistic UI.
+* Gelişmiş cache ve static export iyileştirmeleri.
+
+**v1.0**
+
+* Belgeler, kararlı API, kapsamlı test matrisi ve örnek şablonlar.
+
+---
+
+## 23) Örnekler (uçtan uca)
+
+**`pages/index.bead`**
+
+```python
+from bead.ui import Page, Text, Button, Card
+
+def default(params, context):
+    return Page(
+        title="Ana Sayfa",
+        body=[
+            Card(style="max-w-lg mx-auto mt-12 p-6 bg-white shadow rounded-2xl", children=[
+                Text("Merhaba Bead!", style="text-2xl font-bold text-gray-900"),
+                Text("HTML ve CSS olmadan Python ile web.", style="text-gray-600 mt-2"),
+                Button("Tıkla", onclick="helloClick",
+                       style="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg")
+            ])
+        ]
+    )
+```
+
+**`pages/api/helloClick.py`**
+
+```python
+def handler(request):
+    user_agent = request.headers.get("user-agent", "?")
+    return {"ok": True, "message": f"Selam! UA: {user_agent}"}
+```
+
+**`components/card.bead`**
+
+```python
+from bead.ui import Card, Text
+
+def InfoCard(title: str, body: str):
+    return Card(style="p-4 rounded-xl bg-gray-50 border border-gray-200", children=[
+        Text(title, style="font-semibold"),
+        Text(body, style="text-gray-600 mt-1")
+    ])
+```
+
+---
+
+## 24) Açık Sorular & Karar Bekleyenler
+
+* **DB/ORM**: SQLAlchemy entegrasyonu mı, hafif kendi ORM mi? (v0.2’de karar)
+* **Tema sistemi**: Tam Tailwind uyum mu, Bead‑özel eşlemeler mi?
+* **State yönetimi**: Server‑state yeterli mi, sinyaller/store gerekli mi? (v0.2)
+* **İç runtime**: DOM patch (morph) kapsamı ve sınırları.
+
+---
+
+## 25) Sözlük (Kısa)
+
+* **.bead**: Pythonik UI tanımı içeren dosya.
+* **Component**: UI’nin yeniden kullanılabilir yapı taşı.
+* **SSR**: Sunucu tarafında render edilen HTML.
+* **Event Bridge**: İstemci event → sunucu handler JSON köprüsü.
+* **Utility Class**: Tailwind benzeri kısa stil sınıfı.
+
+---
+
+## 26) Sonuç
+
+Bead, Python geliştiricileri için **modern, üretken ve sezgisel** bir web geliştirme deneyimi sunmayı amaçlar. `.bead` ile Pythonik UI, dosya‑bazlı routing, inline utility stiller,

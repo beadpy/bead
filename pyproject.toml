@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bead"
+version = "0.0.1"
+description = "A full-stack web framework for building web apps entirely with Python."
+readme = "README.md"
+authors = [{ name = "Your Name", email = "your@email.com" }]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "uvicorn",
+    "starlette",
+]
+
+[project.scripts]
+bead = "bead.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]

@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: bead
+Version: 0.0.1
+Summary: A full-stack web framework for building web apps entirely with Python.
+Author-email: Your Name <your@email.com>
+Classifier: Development Status :: 3 - Alpha
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: uvicorn
+Requires-Dist: starlette
