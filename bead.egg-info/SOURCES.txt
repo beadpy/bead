@@ -1,3 +1,4 @@
+README
 pyproject.toml
 bead.egg-info/PKG-INFO
 bead.egg-info/SOURCES.txt

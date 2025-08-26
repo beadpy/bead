@@ -79,19 +79,20 @@ def main():
     create_parser = subparsers.add_parser("create", help="Yeni bir Bead projesi oluşturur.")
     create_parser.add_argument("project_name", help="Oluşturulacak projenin adı.")
     
-    # `bead dev` komutu artık doğrudan proje klasöründen çalışır
+    # `bead dev` komutu artık proje klasörünü argüman olarak alır
     dev_parser = subparsers.add_parser("dev", help="Geliştirme sunucusunu başlatır.")
     dev_parser.add_argument("project_path", nargs="?", default=".", help="Proje dizininin yolu.")
 
     args = parser.parse_args()
-
-    # Eğer `start_dev_server` fonksiyonu daha önce import edilmediyse
-    from bead.server.dev_server import start_dev_server
     
+    # Eğer `start_dev_server` fonksiyonu daha önce import edilmediyse
+    # Bu import'u burada yaparak, dev komutunun çalışacağı klasörü doğru bir şekilde belirlemesini sağlıyoruz
+    from bead.server.dev_server import start_dev_server
+
     if args.command == "create":
         create_project(args.project_name)
     elif args.command == "dev":
-        start_dev_server(os.getcwd())
+        start_dev_server(os.path.abspath(args.project_path))
     else:
         parser.print_help()
 

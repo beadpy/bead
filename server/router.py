@@ -22,6 +22,30 @@ async def handle_request_and_render(file_path, request):
     html_content = render_page(component_tree)
     return HTMLResponse(html_content)
 
+async def _handle_action(request, module):
+    """
+    Olay handler'ını çalıştırır ve yanıtı işler.
+    """
+    if hasattr(module, '_render_after_event'):
+        # Eğer özel bir render fonksiyonu tanımlıysa, onu çağır
+        new_component_tree = await module._render_after_event(request)
+        if new_component_tree:
+            html_content = render_page(new_component_tree)
+            return JSONResponse({"patch": html_content})
+
+    # Varsayılan olarak handler'ı çalıştır
+    if not hasattr(module, 'handler'):
+        return JSONResponse({"error": "Handler function not found in module"}, status_code=500)
+
+    handler_func = getattr(module, 'handler')
+    
+    try:
+        response_data = await handler_func(request)
+        return JSONResponse(response_data)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 async def handle_api_request(request):
     """
     _events/ adresine gelen istekleri işler ve API handler'larına yönlendirir.
@@ -37,17 +61,7 @@ async def handle_api_request(request):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    if not hasattr(module, 'handler'):
-        return JSONResponse({"error": "Handler function not found in module"}, status_code=500)
-
-    handler_func = getattr(module, 'handler')
-
-    try:
-        response_data = await handler_func(request)
-        return JSONResponse(response_data)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
+    return await _handle_action(request, module)
 
 def get_routes(project_path):
     """
@@ -83,7 +97,8 @@ def get_routes(project_path):
                 routes.append(Route(url_path, endpoint=partial(handle_request_and_render, full_file_path)))
                 
     if os.path.exists(public_dir):
-        routes.append(Mount("/", StaticFiles(directory=public_dir, html=True), name="static"))
+        # Bu satırı değiştirdik
+        routes.append(Mount("/public", StaticFiles(directory=public_dir, html=True), name="static"))
 
     # API olaylarını işlemek için özel bir rota ekliyoruz
     # Burada methods=["POST"] argümanını ekleyerek POST isteklerini kabul etmesini sağlıyoruz

@@ -2,7 +2,7 @@
 
 import ast
 import inspect
-from bead.ui.core_components import Component, Page, Text, Button, Card, Stack
+from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 
 def parse_bead_file(file_path: str):
     """
