@@ -3,7 +3,7 @@
 import os
 import importlib.util
 from starlette.routing import Route, Mount
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 from functools import partial
 
@@ -74,6 +74,12 @@ def get_routes(project_path):
     if not os.path.exists(pages_dir):
         print(f"Hata: 'pages' dizini '{project_path}' içinde bulunamadı.")
         return []
+    
+    # Favicon için özel bir rota ekliyoruz
+    favicon_path = os.path.join(public_dir, "favicon.ico")
+    if os.path.exists(favicon_path):
+        # Bu satır RedirectResponse ile değiştirildi
+        routes.append(Route("/favicon.ico", endpoint=lambda r: RedirectResponse(url="/public/favicon.ico")))
 
     index_path = os.path.join(pages_dir, "index.bead")
     if os.path.exists(index_path):
@@ -97,7 +103,6 @@ def get_routes(project_path):
                 routes.append(Route(url_path, endpoint=partial(handle_request_and_render, full_file_path)))
                 
     if os.path.exists(public_dir):
-        # Bu satırı değiştirdik
         routes.append(Mount("/public", StaticFiles(directory=public_dir, html=True), name="static"))
 
     # API olaylarını işlemek için özel bir rota ekliyoruz

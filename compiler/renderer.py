@@ -23,8 +23,13 @@ def render_component(component: Component) -> str:
             # 'onclick' -> 'data-bead-event-onclick'
             attrs += f' data-bead-event-{key}="{value}"'
 
-    if "style" in props:
+    # ID ve stil sadece değerleri None değilse eklenir
+    if "style" in props and props["style"] is not None:
         attrs += f' class="{props["style"]}"'
+
+    if "id" in props and props["id"] is not None:
+      attrs += f' id="{props["id"]}"'
+      
     if "href" in props:
         attrs += f' href="{props["href"]}"'
     if "as_" in props:
@@ -126,60 +131,70 @@ def render_page(component_tree: Component) -> str:
     # Bu kod, olayları yakalayıp sunucuya JSON olarak gönderir ve DOM'u günceller
     js_runtime = """
     <script>
-    (function (global, factory) {
-      typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
-      typeof define === 'function' && define.amd ? define(factory) :
-      (global.morphdom = factory());
-    }(this, (function () { 'use strict';
-      var style = 'style';
-      var events = 'events';
-      function morphAttrs(fromNode, toNode) {
-        var toAttrs = toNode.attributes;
-        var fromAttrs = fromNode.attributes;
-        var attr;
-        var attrName;
-        var attrNamespaceURI;
-        var attrValue;
-        if (toNode.nodeType === 1 && fromNode.nodeType === 1) {
-          if (fromNode.hasAttributes()) {
-            for (var i = fromAttrs.length - 1; i >= 0; --i) {
-              attr = fromAttrs[i];
-              attrName = attr.name;
-              if (attrName !== 'data-bead-event-onclick') { // Bead'in kendi event'lerini koru
-                  fromNode.removeAttribute(attrName);
-              }
-            }
-          }
-          if (toAttrs.length) {
-            for (var i = 0; i < toAttrs.length; ++i) {
-              attr = toAttrs[i];
-              attrName = attr.name;
-              attrNamespaceURI = attr.namespaceURI;
-              attrValue = attr.value;
-              if (attrNamespaceURI) {
-                attrName = attr.localName || attrName;
-                fromNode.setAttributeNS(attrNamespaceURI, attrName, attrValue);
-              } else {
-                fromNode.setAttribute(attrName, attrValue);
-              }
-            }
-          }
+    function morphdom(fromNode, toNode) {
+      if (!fromNode || !toNode) {
+        return toNode;
+      }
+
+      if (fromNode.isEqualNode(toNode)) {
+        return fromNode;
+      }
+      
+      // Update element attributes
+      var toAttrs = toNode.attributes;
+      var fromAttrs = fromNode.attributes;
+
+      for (var i = toAttrs.length - 1; i >= 0; --i) {
+        var attr = toAttrs[i];
+        if (attr.name.startsWith('data-bead-event-')) continue;
+        fromNode.setAttribute(attr.name, attr.value);
+      }
+
+      for (var i = fromAttrs.length - 1; i >= 0; --i) {
+        var attr = fromAttrs[i];
+        if (attr.name.startsWith('data-bead-event-')) continue;
+        if (!toNode.hasAttribute(attr.name)) {
+          fromNode.removeAttribute(attr.name);
         }
       }
-      return function morphdom(fromNode, toNode, options) {
-        options = options || {};
-        options.onBeforeElUpdated = options.onBeforeElUpdated || morphAttrs;
-        return morphdom(fromNode, toNode, options);
-      };
-    })));
-    </script>
-    
-    <script>
+
+      // Update children
+      var fromChildren = Array.from(fromNode.childNodes);
+      var toChildren = Array.from(toNode.childNodes);
+
+      var fromChildrenLen = fromChildren.length;
+      var toChildrenLen = toChildren.length;
+
+      for (var i = 0; i < toChildrenLen; i++) {
+        var toChild = toChildren[i];
+        if (i < fromChildrenLen) {
+          var fromChild = fromChildren[i];
+          if (fromChild.nodeType === fromNode.TEXT_NODE && toChild.nodeType === toNode.TEXT_NODE) {
+            fromChild.nodeValue = toChild.nodeValue;
+          } else {
+            morphdom(fromChild, toChild);
+          }
+        } else {
+          fromNode.appendChild(toChild.cloneNode(true));
+        }
+      }
+
+      while (fromChildrenLen > toChildrenLen) {
+        fromNode.removeChild(fromChildren[fromChildrenLen - 1]);
+        fromChildrenLen--;
+      }
+
+      return fromNode;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         document.body.addEventListener('click', (event) => {
             let target = event.target;
             // Eğer tıklanan öğenin bir event niteliği varsa
-            if (target.dataset && target.dataset.beadEventOnclick) {
+            while (target && !target.dataset.beadEventOnclick) {
+                target = target.parentElement;
+            }
+            if (target && target.dataset.beadEventOnclick) {
                 const handlerName = target.dataset.beadEventOnclick;
                 const requestBody = {
                     event: 'click',
@@ -194,15 +209,19 @@ def render_page(component_tree: Component) -> str:
                 })
                 .then(response => response.json())
                 .then(data => {
-                    console.log('Sunucu yanıtı:', data);
-                    
                     if (data.redirect) {
                         window.location.href = data.redirect;
                     } else if (data.patch) {
-                        // Sunucudan gelen HTML yamasını uygula
                         const tempElement = document.createElement('div');
                         tempElement.innerHTML = data.patch;
-                        morphdom(document.body, tempElement.querySelector('body'));
+                        const patchElement = tempElement.firstElementChild;
+                        
+                        if (patchElement && patchElement.id) {
+                            const currentElement = document.getElementById(patchElement.id);
+                            if (currentElement) {
+                                morphdom(currentElement, patchElement);
+                            }
+                        }
                     }
                 })
                 .catch(error => {

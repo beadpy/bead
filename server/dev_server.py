@@ -19,6 +19,8 @@ async def not_found(request, exc):
 def get_app(project_path):
     routes = get_routes(project_path)
     app = Starlette(debug=True, routes=routes, exception_handlers={404: not_found})
+    # Proje yolunu uygulama durumuna ekliyoruz.
+    app.state.project_path = project_path
     return app
 
 def start_dev_server(project_path):
