@@ -1,3 +1,4 @@
+LICENSE
 README
 pyproject.toml
 bead.egg-info/PKG-INFO
@@ -12,7 +13,9 @@ compiler/renderer.py
 security/__init__.py
 server/__init__.py
 server/dev_server.py
+server/middleware.py
 server/router.py
 ui/__init__.py
 ui/core_components.py
 utils/__init__.py
+utils/validation.py

@@ -1,11 +1,16 @@
+# bead/server/dev_server.py
+
 import uvicorn
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 from starlette.responses import HTMLResponse
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware # Yeni import
 import os
 import sys
 
-from .router import get_routes 
+from .router import get_routes
+from .middleware import LoggingMiddleware, SecurityHeadersMiddleware 
 
 async def render_page_as_html(file_path, request=None):
     # Bu kısım ileride gerçek derleyici ile değiştirilecek.
@@ -18,7 +23,20 @@ async def not_found(request, exc):
 
 def get_app(project_path):
     routes = get_routes(project_path)
-    app = Starlette(debug=True, routes=routes, exception_handlers={404: not_found})
+    
+    # Güvenlik için gizli bir anahtar belirle
+    # Üretim ortamında bu değerin bir ortam değişkeninden gelmesi gerekir
+    SECRET_KEY = os.environ.get("SECRET_KEY", "gizli-ve-guclu-bir-anahtar")
+
+    # Middleware'ı burada Starlette uygulamasına ekliyoruz
+    # Sıralama önemlidir! Oturum middleware'ı ilk sırada olmalı
+    middleware = [
+        Middleware(SessionMiddleware, secret_key=SECRET_KEY),
+        Middleware(LoggingMiddleware),
+        Middleware(SecurityHeadersMiddleware)
+    ]
+
+    app = Starlette(debug=True, routes=routes, exception_handlers={404: not_found}, middleware=middleware)
     # Proje yolunu uygulama durumuna ekliyoruz.
     app.state.project_path = project_path
     return app

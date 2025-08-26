@@ -33,12 +33,14 @@ class Stack(Component):
         super().__init__(children=children, direction=direction, style=style, **kwargs)
 
 class Input(Component):
-    def __init__(self, name: str, value: str = "", type: str = "text", placeholder: str = "", style: Optional[str] = None, oninput: Optional[str] = None, onchange: Optional[str] = None, **kwargs):
-        super().__init__(name=name, value=value, type=type, placeholder=placeholder, style=style, oninput=oninput, onchange=onchange, **kwargs)
+    # 'error' parametresini ekledik
+    def __init__(self, name: str, value: str = "", type: str = "text", placeholder: str = "", style: Optional[str] = None, error: Optional[str] = None, **kwargs):
+        super().__init__(name=name, value=value, type=type, placeholder=placeholder, style=style, error=error, **kwargs)
 
 class Form(Component):
-    def __init__(self, children: List[Component], action: Optional[str] = None, method: str = "POST", onsubmit: Optional[str] = None, style: Optional[str] = None, **kwargs):
-        super().__init__(children=children, action=action, method=method, onsubmit=onsubmit, style=style, **kwargs)
+    # 'schema' parametresini ekledik
+    def __init__(self, children: List[Component], action: Optional[str] = None, method: str = "POST", onsubmit: Optional[str] = None, style: Optional[str] = None, schema: Optional[Dict] = None, **kwargs):
+        super().__init__(children=children, action=action, method=method, onsubmit=onsubmit, style=style, schema=schema, **kwargs)
 
 class Link(Component):
     def __init__(self, label: str, href: str, style: Optional[str] = None, **kwargs):

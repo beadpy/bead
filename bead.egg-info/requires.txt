@@ -1,2 +1,3 @@
 uvicorn
 starlette
+itsdangerous

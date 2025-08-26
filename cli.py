@@ -1,7 +1,9 @@
+# bead/cli.py
 import os
 import sys
 import argparse
 import shutil
+from bead.server.dev_server import start_dev_server
 
 # Bu komut satırı arayüzü, projenin en üst seviye CLI aracıdır.
 # bead create, bead dev gibi komutları içerir.
@@ -44,6 +46,7 @@ def default(params, context):
         f.write("# Bead framework'ü için gerekli bağımlılıkları içerir.\n")
         f.write("uvicorn\n")
         f.write("starlette\n")
+        f.write("itsdangerous\n")
         f.write("-e ../bead\n")
     
     with open(os.path.join(project_path, "run.py"), "w", encoding="utf-8") as f:
@@ -87,8 +90,6 @@ def main():
     
     # Eğer `start_dev_server` fonksiyonu daha önce import edilmediyse
     # Bu import'u burada yaparak, dev komutunun çalışacağı klasörü doğru bir şekilde belirlemesini sağlıyoruz
-    from bead.server.dev_server import start_dev_server
-
     if args.command == "create":
         create_project(args.project_name)
     elif args.command == "dev":
