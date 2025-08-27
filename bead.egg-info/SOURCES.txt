@@ -15,6 +15,7 @@ server/__init__.py
 server/dev_server.py
 server/middleware.py
 server/router.py
+styles/compiler.py
 ui/__init__.py
 ui/core_components.py
 utils/__init__.py

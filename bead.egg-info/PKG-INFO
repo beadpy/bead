@@ -13,4 +13,5 @@ License-File: LICENSE
 Requires-Dist: uvicorn
 Requires-Dist: starlette
 Requires-Dist: itsdangerous
+Requires-Dist: watchdog
 Dynamic: license-file

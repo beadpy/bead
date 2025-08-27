@@ -1,4 +1,4 @@
-# bead/server/router.py (Final)
+# bead/server/router.py
 
 import os
 import importlib.util
@@ -9,17 +9,36 @@ from functools import partial
 
 from bead.compiler.parser import parse_bead_file
 from bead.compiler.renderer import render_page
+from bead.styles.compiler import generate_css, extract_classes
+
+# Bu küme, tüm render işlemlerinde bulunan stil sınıflarını toplayacak.
+# Set kullanmamızın sebebi, tekrar eden sınıfları otomatik olarak elemesidir.
+_all_utility_classes = set()
 
 async def handle_request_and_render(file_path, request):
     """
-    İstekleri işler, .bead dosyasını parse eder ve HTML olarak render eder.
+    İstekleri işler, .bead dosyasını parse eder, HTML olarak render eder ve
+    stil sınıflarını toplayarak CSS dosyasını günceller.
     """
+    global _all_utility_classes
+    _all_utility_classes.clear() # Her istekte kümeyi temizle
+    
     component_tree = parse_bead_file(file_path)
 
     if not component_tree:
         return HTMLResponse("<h1>Derleme Hatası</h1><p>Bileşen ağacı oluşturulamadı.</p>", status_code=500)
     
-    html_content = render_page(component_tree)
+    # render_page fonksiyonunu yeni parametreyle çağırıyoruz
+    html_content = render_page(component_tree, _all_utility_classes)
+    
+    # CSS dosyasını oluştur ve kaydet
+    css_content = generate_css(_all_utility_classes)
+    
+    public_dir = os.path.join(request.app.state.project_path, "public")
+    os.makedirs(public_dir, exist_ok=True)
+    with open(os.path.join(public_dir, "bead.css"), "w", encoding="utf-8") as f:
+        f.write(css_content)
+        
     return HTMLResponse(html_content)
 
 async def _handle_action(request, module):
@@ -27,13 +46,11 @@ async def _handle_action(request, module):
     Olay handler'ını çalıştırır ve yanıtı işler.
     """
     if hasattr(module, '_render_after_event'):
-        # Eğer özel bir render fonksiyonu tanımlıysa, onu çağır
         new_component_tree = await module._render_after_event(request)
         if new_component_tree:
             html_content = render_page(new_component_tree)
             return JSONResponse({"patch": html_content})
 
-    # Varsayılan olarak handler'ı çalıştır
     if not hasattr(module, 'handler'):
         return JSONResponse({"error": "Handler function not found in module"}, status_code=500)
 
@@ -41,10 +58,14 @@ async def _handle_action(request, module):
     
     try:
         response_data = await handler_func(request)
-        return JSONResponse(response_data)
+        if isinstance(response_data, RedirectResponse):
+            return JSONResponse({"redirect": str(response_data.url)})
+        if isinstance(response_data, JSONResponse):
+            return response_data
+        
+        return response_data
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
-
 
 async def handle_api_request(request):
     """
@@ -63,6 +84,24 @@ async def handle_api_request(request):
 
     return await _handle_action(request, module)
 
+async def handle_api_endpoint(request):
+    """
+    /api/ adresine gelen standart POST isteklerini işler.
+    """
+    handler_name = request.path_params.get("handler")
+    api_dir = os.path.join(request.app.state.project_path, "pages", "api")
+    handler_path = os.path.join(api_dir, f"{handler_name}.py")
+
+    if not os.path.exists(handler_path):
+        return JSONResponse({"error": "Handler not found"}, status_code=404)
+
+    spec = importlib.util.spec_from_file_location(handler_name, handler_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return await _handle_action(request, module)
+
+
 def get_routes(project_path):
     """
     pages/ klasörünü tarar ve dinamik olarak rotalar oluşturur.
@@ -75,18 +114,17 @@ def get_routes(project_path):
         print(f"Hata: 'pages' dizini '{project_path}' içinde bulunamadı.")
         return []
     
-    # Favicon için özel bir rota ekliyoruz
     favicon_path = os.path.join(public_dir, "favicon.ico")
     if os.path.exists(favicon_path):
-        # Bu satır RedirectResponse ile değiştirildi
         routes.append(Route("/favicon.ico", endpoint=lambda r: RedirectResponse(url="/public/favicon.ico")))
 
     index_path = os.path.join(pages_dir, "index.bead")
     if os.path.exists(index_path):
+        # handle_request_and_render fonksiyonunu global olarak çağırıyoruz
         routes.append(Route("/", endpoint=partial(handle_request_and_render, index_path)))
     
     for root, dirs, files in os.walk(pages_dir):
-        dirs[:] = [d for d in dirs if not d.startswith("api")]
+        dirs[:] = [d for d in dirs if not d.startswith("api") and not d.startswith("_events")]
         files[:] = [f for f in files if not f.startswith("_layout")]
         
         for file_name in files:
@@ -105,8 +143,8 @@ def get_routes(project_path):
     if os.path.exists(public_dir):
         routes.append(Mount("/public", StaticFiles(directory=public_dir, html=True), name="static"))
 
-    # API olaylarını işlemek için özel bir rota ekliyoruz
-    # Burada methods=["POST"] argümanını ekleyerek POST isteklerini kabul etmesini sağlıyoruz
     routes.append(Route("/_events/{handler}", endpoint=handle_api_request, methods=["POST"]))
+
+    routes.append(Route("/api/{handler}", endpoint=handle_api_endpoint, methods=["POST"]))
 
     return routes

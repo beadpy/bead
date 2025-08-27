@@ -20,7 +20,8 @@ classifiers = [
 dependencies = [
     "uvicorn",
     "starlette",
-    "itsdangerous", # Yeni bağımlılık
+    "itsdangerous",
+    "watchdog",
 ]
 
 [project.scripts]

@@ -1,8 +1,9 @@
 # bead/compiler/renderer.py
 
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
+from bead.styles.compiler import extract_classes
 
-def render_component(component: Component) -> str:
+def render_component(component: Component, utility_classes: set) -> str:
     """
     Tek bir bileşeni HTML string'ine dönüştürür.
     Bu bir recursive (özyinelemeli) fonksiyondur.
@@ -23,9 +24,12 @@ def render_component(component: Component) -> str:
             # 'onclick' -> 'data-bead-event-onclick'
             attrs += f' data-bead-event-{key}="{value}"'
 
-    # ID ve stil sadece değerleri None değilse eklenir
+    # Sınıf toplama işlemini burada yapıyoruz
     if "style" in props and props["style"] is not None:
         attrs += f' class="{props["style"]}"'
+        # Stilleri çıkar ve kümeye ekle
+        found_classes = extract_classes(f'class="{props["style"]}"')
+        utility_classes.update(found_classes)
 
     if "id" in props and props["id"] is not None:
       attrs += f' id="{props["id"]}"'
@@ -50,8 +54,8 @@ def render_component(component: Component) -> str:
 
     children_html = ""
     if "children" in props and isinstance(props["children"], list):
-        # Çocuk bileşenleri recursive olarak render et
-        children_html = "".join([render_component(child) for child in props["children"]])
+        # Çocuk bileşenleri recursive olarak render et ve sınıflarını topla
+        children_html = "".join([render_component(child, utility_classes) for child in props["children"]])
     
     # Image bileşeni için özel işleme
     if component_type == "Image":
@@ -97,7 +101,7 @@ def render_component(component: Component) -> str:
                 else:
                     meta_html += f'    <meta name="{name}" content="{content}">\n'
         
-        body_content = "".join([render_component(child) for child in props["body"]])
+        body_content = "".join([render_component(child, utility_classes) for child in props["body"]])
         
         # Favicon için meta etiketi ekle
         head_content = f"""
@@ -120,15 +124,16 @@ def render_component(component: Component) -> str:
     # Varsayılan olarak çocukları olan bir etikete dönüştür
     return f'<{tag}{attrs}>{children_html}</{tag}>'
 
-def render_page(component_tree: Component) -> str:
+def render_page(component_tree: Component, utility_classes: set) -> str:
     """
     Derlenmiş bileşen ağacını alıp ana HTML sayfasını oluşturur.
     """
-    # 1. Bileşenleri HTML'e çevir
-    html_content = render_component(component_tree)
+    html_content = render_component(component_tree, utility_classes)
 
-    # 2. Sayfanın sonuna event köprüsü ve morphdom için JS kodunu ekle
-    # Bu kod, olayları yakalayıp sunucuya JSON olarak gönderir ve DOM'u günceller
+    # Yeni eklenen CSS dosyasını burada sayfaya ekliyoruz
+    css_link = '<link rel="stylesheet" href="/public/bead.css">'
+    html_content = html_content.replace('</head>', f'    {css_link}\n</head>')
+
     js_runtime = """
     <script>
     function morphdom(fromNode, toNode) {
@@ -190,48 +195,71 @@ def render_page(component_tree: Component) -> str:
     document.addEventListener('DOMContentLoaded', () => {
         document.body.addEventListener('click', (event) => {
             let target = event.target;
-            // Eğer tıklanan öğenin bir event niteliği varsa
             while (target && !target.dataset.beadEventOnclick) {
                 target = target.parentElement;
             }
             if (target && target.dataset.beadEventOnclick) {
-                const handlerName = target.dataset.beadEventOnclick;
-                const requestBody = {
-                    event: 'click',
-                    handler: handlerName,
-                    element: { id: target.id, dataset: target.dataset },
-                };
-                
-                fetch(`/_events/${handlerName}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody)
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.redirect) {
-                        window.location.href = data.redirect;
-                    } else if (data.patch) {
-                        const tempElement = document.createElement('div');
-                        tempElement.innerHTML = data.patch;
-                        const patchElement = tempElement.firstElementChild;
-                        
-                        if (patchElement && patchElement.id) {
-                            const currentElement = document.getElementById(patchElement.id);
-                            if (currentElement) {
-                                morphdom(currentElement, patchElement);
-                            }
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('Hata:', error);
-                });
+                event.preventDefault();
+                handleEvent(target, target.dataset.beadEventOnclick);
             }
         });
+
+        document.body.addEventListener('submit', (event) => {
+            let target = event.target;
+            while (target && target.tagName !== 'FORM') {
+                target = target.parentElement;
+            }
+            if (target && target.dataset.beadEventOnsubmit) {
+                event.preventDefault();
+                handleEvent(target, target.dataset.beadEventOnsubmit);
+            }
+        });
+
+        function handleEvent(target, handlerName) {
+            let requestBody = {};
+            if (target.tagName === 'FORM') {
+                const formData = new FormData(target);
+                requestBody = Object.fromEntries(formData.entries());
+            }
+
+            fetch(`/_events/${handlerName}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(error => {
+                        window.alert(error.error);
+                        throw new Error(error.error);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.redirect) {
+                    window.location.href = data.redirect;
+                } else if (data.patch) {
+                    const tempElement = document.createElement('div');
+                    tempElement.innerHTML = data.patch;
+                    const patchElement = tempElement.firstElementChild;
+                    
+                    if (patchElement && patchElement.id) {
+                        const currentElement = document.getElementById(patchElement.id);
+                        if (currentElement) {
+                            morphdom(currentElement, patchElement);
+                        }
+                    } else {
+                        morphdom(document.body, tempElement.querySelector('body'));
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Hata:', error);
+            });
+        }
     });
     </script>
     """
     
-    # JS kodunu </body> etiketinden hemen önce ekle
     return html_content.replace('</body>', f'{js_runtime}</body>')
