@@ -3,6 +3,10 @@
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 from bead.styles.compiler import extract_classes
 
+# Bu küme, tüm render işlemlerinde bulunan özel CSS stillerini toplayacak.
+_all_custom_styles = set()
+_all_utility_classes = set()
+
 def render_component(component: Component, utility_classes: set) -> str:
     """
     Tek bir bileşeni HTML string'ine dönüştürür.
@@ -23,6 +27,16 @@ def render_component(component: Component, utility_classes: set) -> str:
         if key.startswith("on"):
             # 'onclick' -> 'data-bead-event-onclick'
             attrs += f' data-bead-event-{key}="{value}"'
+            
+    # Özel stil toplama işlemini burada yapıyoruz
+    if "custom_style" in props and props["custom_style"] is not None:
+        # Rastgele değerler içerebildiği için direkt olarak kümeye ekle
+        _all_custom_styles.add(f' .custom-style-{id(component)} {{ {props["custom_style"]} }}')
+        # Oluşturulan benzersiz sınıf adını class listesine ekle
+        if "style" in props and props["style"] is not None:
+            props["style"] += f" custom-style-{id(component)}"
+        else:
+            props["style"] = f" custom-style-{id(component)}"
 
     # Sınıf toplama işlemini burada yapıyoruz
     if "style" in props and props["style"] is not None:
@@ -133,6 +147,12 @@ def render_page(component_tree: Component, utility_classes: set) -> str:
     # Yeni eklenen CSS dosyasını burada sayfaya ekliyoruz
     css_link = '<link rel="stylesheet" href="/public/bead.css">'
     html_content = html_content.replace('</head>', f'    {css_link}\n</head>')
+    
+    # Özel stil blokunu ekle
+    custom_styles_str = "\n".join(list(_all_custom_styles))
+    if custom_styles_str:
+        style_block = f'\n    <style>{custom_styles_str}</style>\n'
+        html_content = html_content.replace('</head>', f'{style_block}\n</head>')
 
     js_runtime = """
     <script>
