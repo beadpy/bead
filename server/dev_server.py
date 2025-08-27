@@ -14,7 +14,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from .router import get_routes
-from .middleware import LoggingMiddleware, SecurityHeadersMiddleware 
+from .middleware import LoggingMiddleware, SecurityHeadersMiddleware
+from bead.compiler.parser import parse_bead_file
+from bead.exceptions import CompilerError
 
 # Bu fonksiyon hata işleyici olarak tanımlandığı için Starlette uygulaması içinde olmalıdır.
 async def not_found(request, exc):
@@ -54,6 +56,20 @@ def start_dev_server(project_path):
         sys.path.insert(0, full_path)
 
     print("Bead Geliştirme Sunucusu başlatılıyor...")
+    
+    # Sunucuyu başlatmadan önce tüm .bead dosyalarını derleyerek sözdizimi hatalarını kontrol et
+    try:
+        pages_dir = os.path.join(full_path, "pages")
+        for root, dirs, files in os.walk(pages_dir):
+            for file_name in files:
+                if file_name.endswith(".bead"):
+                    file_path = os.path.join(root, file_name)
+                    parse_bead_file(file_path)
+        print("INFO:  Tüm .bead dosyaları başarıyla derlendi.")
+    except CompilerError as e:
+        print(f"HATA: Derleme hatası: {e}")
+        return # Hata varsa sunucuyu başlatma
+
     print("Uygulama: http://localhost:8000")
     print("Dosya değişiklikleri izleniyor...")
 
