@@ -2,13 +2,29 @@
 
 import ast
 import inspect
+import os # Eklenen import
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 from bead.exceptions import CompilerError
+
+# .bead dosyaları için önbellek (cache) sözlüğü
+_file_cache = {}
 
 def parse_bead_file(file_path: str):
     """
     Reads a .bead file and returns a Component Tree.
+    Uses caching to avoid re-parsing unchanged files.
     """
+    try:
+        # Dosyanın son değiştirilme zamanını al
+        last_modified = os.path.getmtime(file_path)
+        
+        # Eğer dosya önbellekteyse ve değişmediyse, önbellekteki ağacı döndür
+        if file_path in _file_cache and _file_cache[file_path]["last_modified"] == last_modified:
+            print(f"INFO:  {file_path} from cache.")
+            return _file_cache[file_path]["tree"]
+    except FileNotFoundError:
+        raise CompilerError(f"File not found: {file_path}", file_path)
+
     with open(file_path, 'r', encoding='utf-8') as f:
         source_code = f.read()
 
@@ -17,8 +33,8 @@ def parse_bead_file(file_path: str):
         tree = ast.parse(source_code, filename=file_path)
     except SyntaxError as e:
         # Raise CompilerError with detailed line and column information.
-        error_message = f"Syntax error: {e.msg} at line {e.lineno}, column {e.offset}"
-        raise CompilerError(error_message, file_path) # Changed to pass file_path to CompilerError
+        error_message = f"Syntax error: {e.msg}"
+        raise CompilerError(error_message, file_path, e.lineno, e.offset)
 
     # Search for a function named 'default'
     default_func = None
@@ -32,7 +48,20 @@ def parse_bead_file(file_path: str):
 
     # Process the return value of the function
     component_tree = find_return_value(default_func, file_path)
+    
+    # Yeni ağacı ve zaman damgasını önbelleğe kaydet
+    _file_cache[file_path] = {
+        "last_modified": last_modified,
+        "tree": component_tree
+    }
+
     return component_tree
+
+def clear_cache():
+    """
+    Clears the compiler cache.
+    """
+    _file_cache.clear()
 
 def find_return_value(func_node, file_path: str):
     """
@@ -40,38 +69,40 @@ def find_return_value(func_node, file_path: str):
     """
     for node in func_node.body:
         if isinstance(node, ast.Return):
-            return process_component_call(node.value, file_path)
+            # Pass line and column information to the next function
+            return process_component_call(node.value, file_path, node.lineno, node.col_offset)
     
-    raise CompilerError(f"The 'default' function must return a Component object.", file_path)
+    # If no return statement is found, raise an error with function's start line info.
+    raise CompilerError(f"The 'default' function must return a Component object.", file_path, func_node.lineno, func_node.col_offset)
 
-def process_component_call(node, file_path: str):
+def process_component_call(node, file_path: str, line_no: int, col_offset: int):
     """
     Converts a component call in the AST into a Component object.
     """
     if not isinstance(node, ast.Call):
-        raise CompilerError(f"Return value must be a component call (e.g., Page(...)).", file_path)
+        raise CompilerError(f"Return value must be a component call (e.g., Page(...)).", file_path, line_no, col_offset)
     
     func_name = node.func.id
     
     component_class = globals().get(func_name)
     if not component_class or not inspect.isclass(component_class) or not issubclass(component_class, Component):
-        raise CompilerError(f"Invalid component '{func_name}' found.", file_path)
+        raise CompilerError(f"Invalid component '{func_name}' found.", file_path, line_no, col_offset)
 
     # Process positional arguments
     args = []
     for arg_node in node.args:
-        args.append(process_ast_node_value(arg_node, file_path))
+        args.append(process_ast_node_value(arg_node, file_path, line_no, col_offset))
         
     # Process keyword arguments (kwargs)
     kwargs = {}
     for keyword in node.keywords:
         key = keyword.arg
-        value = process_ast_node_value(keyword.value, file_path)
+        value = process_ast_node_value(keyword.value, file_path, line_no, col_offset)
         kwargs[key] = value
 
     return component_class(*args, **kwargs)
 
-def process_ast_node_value(node, file_path: str):
+def process_ast_node_value(node, file_path: str, line_no: int, col_offset: int):
     """
     Converts a value from an AST node to a Python data type.
     """
@@ -82,9 +113,9 @@ def process_ast_node_value(node, file_path: str):
     elif isinstance(node, ast.Num):
         return node.n
     elif isinstance(node, ast.List):
-        return [process_component_call(el, file_path) for el in node.elts]
+        return [process_component_call(el, file_path, el.lineno, el.col_offset) for el in node.elts]
     elif isinstance(node, ast.Dict):
-        return {process_ast_node_value(k, file_path): process_ast_node_value(v, file_path) for k, v in zip(node.keys, node.values)}
+        return {process_ast_node_value(k, file_path, k.lineno, k.col_offset): process_ast_node_value(v, file_path, v.lineno, v.col_offset) for k, v in zip(node.keys, node.values)}
     elif isinstance(node, ast.Attribute):
         return node.attr
 

@@ -16,7 +16,7 @@ import socket # Eklenen import
 
 from .router import get_routes
 from .middleware import LoggingMiddleware, SecurityHeadersMiddleware
-from bead.compiler.parser import parse_bead_file
+from bead.compiler.parser import parse_bead_file, clear_cache # clear_cache importunu ekledik
 from bead.exceptions import CompilerError
 from bead.config import load_config
 
@@ -53,6 +53,8 @@ class ChangeEventHandler(FileSystemEventHandler):
         if event.is_directory:
             return None
         
+        # Değişiklik algılandığında önbelleği temizle
+        clear_cache()
         print(f"INFO:  Change detected: {event.src_path}")
         self.shutdown_event.set()
 
