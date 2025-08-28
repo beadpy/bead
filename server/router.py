@@ -6,6 +6,9 @@ from starlette.routing import Route, Mount
 from starlette.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 from functools import partial
+from itsdangerous import TimedSerializer
+from itsdangerous import BadSignature
+import os
 
 from bead.compiler.parser import parse_bead_file
 from bead.compiler.renderer import render_page
@@ -28,11 +31,20 @@ async def handle_request_and_render(file_path, request):
     if not component_tree:
         return HTMLResponse("<h1>Derleme Hatası</h1><p>Bileşen ağacı oluşturulamadı.</p>", status_code=500)
     
+    csrf_token = None
+    config = request.app.state.config
+    security_settings = config.get("security", {})
+    if security_settings.get("csrf"):
+        # Gizli anahtarı config'den al, yoksa ortam değişkeninden veya varsayılan bir değer kullan.
+        secret_key = config.get("security", {}).get("secret_key", os.environ.get("SECRET_KEY", "a-secret-key-that-should-be-changed"))
+        s = TimedSerializer(secret_key)
+        csrf_token = s.dumps({'_csrf_token': os.urandom(32).hex()})
+        request.session['_csrf_token'] = csrf_token
+    
     # render_page fonksiyonunu yeni parametreyle çağırıyoruz
-    html_content = render_page(component_tree, _all_utility_classes)
+    html_content = render_page(component_tree, _all_utility_classes, csrf_token=csrf_token)
     
     # Yapılandırma dosyasından stil haritasını al
-    config = request.app.state.config
     dynamic_style_map = get_style_map(config.settings)
     
     # CSS dosyasını oluştur ve kaydet
@@ -49,6 +61,26 @@ async def _handle_action(request, module):
     """
     Olay handler'ını çalıştırır ve yanıtı işler.
     """
+    if request.method == "POST":
+        # CSRF korumasını kontrol et
+        config = request.app.state.config
+        security_settings = config.get("security", {})
+        if security_settings.get("csrf"):
+            csrf_token = request.session.get('_csrf_token')
+            if not csrf_token:
+                return JSONResponse({"error": "CSRF token not found in session."}, status_code=403)
+            
+            try:
+                data = await request.json()
+                form_token = data.get("csrf_token")
+                secret_key = config.get("security", {}).get("secret_key", os.environ.get("SECRET_KEY", "a-secret-key-that-should-be-changed"))
+                s = TimedSerializer(secret_key)
+                s.loads(form_token) # Token'ı doğrula
+                if form_token != csrf_token:
+                    return JSONResponse({"error": "CSRF token mismatch."}, status_code=403)
+            except (BadSignature, ValueError, KeyError):
+                return JSONResponse({"error": "Invalid CSRF token."}, status_code=403)
+
     if hasattr(module, '_render_after_event'):
         new_component_tree = await module._render_after_event(request)
         if new_component_tree:

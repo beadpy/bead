@@ -109,7 +109,7 @@ def start_dev_server(project_path):
             shutdown_event.wait()
             
             # Sunucu iş parçağını durdur
-            server_thread.join(timeout=1)
+            server_thread.join(timeout=10) # Bekleme süresini 10 saniyeye çıkardık
             
             # Watchdog izleyicisini durdur
             observer.stop()
@@ -124,7 +124,7 @@ def start_dev_server(project_path):
         except Exception as e:
             if isinstance(e, socket.error) and e.errno == 10048:
                 print(f"ERROR: Port {port} is already in use. Waiting for it to be released...")
-                time.sleep(2) # Bekleme süresini artır
+                time.sleep(10) # Bekleme süresini 10 saniyeye çıkardık
             else:
                 print(f"An error occurred: {e}")
                 break

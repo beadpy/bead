@@ -2,12 +2,13 @@
 
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 from bead.styles.compiler import extract_classes
+from typing import Optional # Bu satırı ekledik.
 
 # Bu küme, tüm render işlemlerinde bulunan özel CSS stillerini toplayacak.
 _all_custom_styles = set()
 _all_utility_classes = set()
 
-def render_component(component: Component, utility_classes: set) -> str:
+def render_component(component: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
     """
     Tek bir bileşeni HTML string'ine dönüştürür.
     Bu bir recursive (özyinelemeli) fonksiyondur.
@@ -69,7 +70,7 @@ def render_component(component: Component, utility_classes: set) -> str:
     children_html = ""
     if "children" in props and isinstance(props["children"], list):
         # Çocuk bileşenleri recursive olarak render et ve sınıflarını topla
-        children_html = "".join([render_component(child, utility_classes) for child in props["children"]])
+        children_html = "".join([render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]])
     
     # Image bileşeni için özel işleme
     if component_type == "Image":
@@ -90,6 +91,12 @@ def render_component(component: Component, utility_classes: set) -> str:
             attrs += f' action="{props["action"]}"'
         if "method" in props:
             attrs += f' method="{props["method"]}"'
+        
+        # CSRF token'ı varsa gizli input olarak ekle
+        if csrf_token is not None:
+            csrf_input = f'<input type="hidden" name="csrf_token" value="{csrf_token}" />'
+            children_html += csrf_input
+            
         return f'<{tag}{attrs}>{children_html}</{tag}>'
 
     # Input bileşeni için özel işleme
@@ -115,7 +122,7 @@ def render_component(component: Component, utility_classes: set) -> str:
                 else:
                     meta_html += f'    <meta name="{name}" content="{content}">\n'
         
-        body_content = "".join([render_component(child, utility_classes) for child in props["body"]])
+        body_content = "".join([render_component(child, utility_classes, csrf_token=csrf_token) for child in props["body"]])
         
         # Favicon için meta etiketi ekle
         head_content = f"""
@@ -138,11 +145,11 @@ def render_component(component: Component, utility_classes: set) -> str:
     # Varsayılan olarak çocukları olan bir etikete dönüştür
     return f'<{tag}{attrs}>{children_html}</{tag}>'
 
-def render_page(component_tree: Component, utility_classes: set) -> str:
+def render_page(component_tree: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
     """
     Derlenmiş bileşen ağacını alıp ana HTML sayfasını oluşturur.
     """
-    html_content = render_component(component_tree, utility_classes)
+    html_content = render_component(component_tree, utility_classes, csrf_token=csrf_token)
 
     # Yeni eklenen CSS dosyasını burada sayfaya ekliyoruz
     css_link = '<link rel="stylesheet" href="/public/bead.css">'

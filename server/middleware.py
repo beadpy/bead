@@ -36,6 +36,12 @@ class SecurityHeadersMiddleware:
                 message["headers"].append([b"X-Frame-Options", b"DENY"])
                 message["headers"].append([b"X-Content-Type-Options", b"nosniff"])
 
+                # CSP'yi konfigürasyondan al ve ekle
+                config = scope['app'].state.config
+                csp_policy = config.get("security", {}).get("csp")
+                if csp_policy:
+                    message["headers"].append([b"Content-Security-Policy", csp_policy.encode('utf-8')])
+
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

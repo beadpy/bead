@@ -40,9 +40,9 @@ class Input(Component):
         super().__init__(name=name, value=value, type=type, placeholder=placeholder, style=style, custom_style=custom_style, error=error, **kwargs)
 
 class Form(Component):
-    # 'schema' parametresini ekledik
-    def __init__(self, children: List[Component], action: Optional[str] = None, method: str = "POST", onsubmit: Optional[str] = None, style: Optional[str] = None, custom_style: Optional[str] = None, schema: Optional[Dict] = None, **kwargs):
-        super().__init__(children=children, action=action, method=method, onsubmit=onsubmit, style=style, custom_style=custom_style, schema=schema, **kwargs)
+    # 'schema' ve 'csrf_token' parametrelerini ekledik
+    def __init__(self, children: List[Component], action: Optional[str] = None, method: str = "POST", onsubmit: Optional[str] = None, style: Optional[str] = None, custom_style: Optional[str] = None, schema: Optional[Dict] = None, csrf_token: Optional[str] = None, **kwargs):
+        super().__init__(children=children, action=action, method=method, onsubmit=onsubmit, style=style, custom_style=custom_style, schema=schema, csrf_token=csrf_token, **kwargs)
 
 class Link(Component):
     def __init__(self, label: str, href: str, style: Optional[str] = None, custom_style: Optional[str] = None, **kwargs):
