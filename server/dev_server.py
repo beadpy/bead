@@ -12,26 +12,36 @@ import threading
 import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import socket # Eklenen import
 
 from .router import get_routes
 from .middleware import LoggingMiddleware, SecurityHeadersMiddleware
 from bead.compiler.parser import parse_bead_file
 from bead.exceptions import CompilerError
+from bead.config import load_config
 
-# Bu fonksiyon hata işleyici olarak tanımlandığı için Starlette uygulaması içinde olmalıdır.
+# This function is defined as an exception handler, so it must be inside the Starlette application.
 async def not_found(request, exc):
-    return HTMLResponse("<h1>404 Sayfa Bulunamadı</h1>", status_code=404)
+    return HTMLResponse("<h1>404 Page Not Found</h1>", status_code=404)
 
 def get_app(project_path):
+    # Load configuration first
+    config = load_config(project_path)
+    
     routes = get_routes(project_path)
-    SECRET_KEY = os.environ.get("SECRET_KEY", "gizli-ve-guclu-bir-anahtar")
+    # Get SECRET_KEY from config or environment variable
+    SECRET_KEY = config.get("security", {}).get("secret_key", os.environ.get("SECRET_KEY", "a-secret-key-that-should-be-changed"))
     middleware = [
         Middleware(SessionMiddleware, secret_key=SECRET_KEY),
         Middleware(LoggingMiddleware),
         Middleware(SecurityHeadersMiddleware)
     ]
+    
+    # Pass config and project_path to the app state
     app = Starlette(debug=True, routes=routes, exception_handlers={404: not_found}, middleware=middleware)
     app.state.project_path = project_path
+    app.state.config = config
+    
     return app
 
 class ChangeEventHandler(FileSystemEventHandler):
@@ -43,21 +53,19 @@ class ChangeEventHandler(FileSystemEventHandler):
         if event.is_directory:
             return None
         
-        # Değişiklik algılandığında sunucuyu yeniden başlatmak için olayı tetikle
-        print(f"INFO:  Değişiklik algılandı: {event.src_path}")
+        print(f"INFO:  Change detected: {event.src_path}")
         self.shutdown_event.set()
 
 def start_dev_server(project_path):
     """
-    Belirtilen proje yolu için geliştirme sunucusunu başlatır.
+    Starts the development server for the specified project path.
     """
     full_path = os.path.abspath(project_path)
     if full_path not in sys.path:
         sys.path.insert(0, full_path)
 
-    print("Bead Geliştirme Sunucusu başlatılıyor...")
+    print("Bead Development Server is starting...")
     
-    # Sunucuyu başlatmadan önce tüm .bead dosyalarını derleyerek sözdizimi hatalarını kontrol et
     try:
         pages_dir = os.path.join(full_path, "pages")
         for root, dirs, files in os.walk(pages_dir):
@@ -65,13 +73,20 @@ def start_dev_server(project_path):
                 if file_name.endswith(".bead"):
                     file_path = os.path.join(root, file_name)
                     parse_bead_file(file_path)
-        print("INFO:  Tüm .bead dosyaları başarıyla derlendi.")
+        print("INFO:  All .bead files compiled successfully.")
     except CompilerError as e:
-        print(f"HATA: Derleme hatası: {e}")
-        return # Hata varsa sunucuyu başlatma
+        print(f"ERROR: Compilation error: {e}")
+        return
 
-    print("Uygulama: http://localhost:8000")
-    print("Dosya değişiklikleri izleniyor...")
+    # Check for port in config file and use default if not found
+    try:
+        config = load_config(full_path)
+        port = config.get("server", {}).get("port", 8000)
+    except Exception:
+        port = 8000
+    
+    print(f"Application: http://localhost:{port}")
+    print("Watching for file changes...")
 
     while True:
         try:
@@ -80,7 +95,7 @@ def start_dev_server(project_path):
             # Sunucuyu ayrı bir iş parçacığında (thread) başlat
             server_thread = threading.Thread(target=uvicorn.run, 
                                             args=(get_app(full_path),),
-                                            kwargs={"host": "0.0.0.0", "port": 8000},
+                                            kwargs={"host": "0.0.0.0", "port": port},
                                             daemon=True)
             server_thread.start()
 
@@ -100,15 +115,19 @@ def start_dev_server(project_path):
             observer.stop()
             observer.join()
 
-            print("INFO:  Sunucu yeniden başlatılıyor...")
-            time.sleep(1) # Yeniden başlatma için bekle
+            print("INFO:  Server restarting...")
+            time.sleep(1)
         
         except KeyboardInterrupt:
-            print("INFO:  Sunucu durduruluyor.")
+            print("INFO:  Server stopped.")
             break
         except Exception as e:
-            print(f"Hata oluştu: {e}")
-            break
+            if isinstance(e, socket.error) and e.errno == 10048:
+                print(f"ERROR: Port {port} is already in use. Waiting for it to be released...")
+                time.sleep(2) # Bekleme süresini artır
+            else:
+                print(f"An error occurred: {e}")
+                break
 
 if __name__ == "__main__":
     start_dev_server(".")

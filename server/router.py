@@ -9,7 +9,7 @@ from functools import partial
 
 from bead.compiler.parser import parse_bead_file
 from bead.compiler.renderer import render_page
-from bead.styles.compiler import generate_css, extract_classes
+from bead.styles.compiler import generate_css, extract_classes, get_style_map
 
 # Bu küme, tüm render işlemlerinde bulunan stil sınıflarını toplayacak.
 # Set kullanmamızın sebebi, tekrar eden sınıfları otomatik olarak elemesidir.
@@ -21,7 +21,7 @@ async def handle_request_and_render(file_path, request):
     stil sınıflarını toplayarak CSS dosyasını günceller.
     """
     global _all_utility_classes
-    _all_utility_classes.clear() # Her istekte kümeyi temizle
+    _all_utility_classes.clear()
     
     component_tree = parse_bead_file(file_path)
 
@@ -31,8 +31,12 @@ async def handle_request_and_render(file_path, request):
     # render_page fonksiyonunu yeni parametreyle çağırıyoruz
     html_content = render_page(component_tree, _all_utility_classes)
     
+    # Yapılandırma dosyasından stil haritasını al
+    config = request.app.state.config
+    dynamic_style_map = get_style_map(config.settings)
+    
     # CSS dosyasını oluştur ve kaydet
-    css_content = generate_css(_all_utility_classes)
+    css_content = generate_css(_all_utility_classes, dynamic_style_map)
     
     public_dir = os.path.join(request.app.state.project_path, "public")
     os.makedirs(public_dir, exist_ok=True)
@@ -100,7 +104,6 @@ async def handle_api_endpoint(request):
     spec.loader.exec_module(module)
 
     return await _handle_action(request, module)
-
 
 def get_routes(project_path):
     """

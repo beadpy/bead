@@ -1,8 +1,9 @@
 import re
+from typing import Dict, Any
 
 # Tailwind benzeri utility sınıflarının CSS karşılıklarını içeren harita.
 # Bu sözlük, ileride projenin konfigürasyon dosyasına taşınabilir.
-STYLE_MAP = {
+STATIC_STYLE_MAP = {
     # Sizing
     "w-full": "width: 100%;",
     "h-full": "height: 100%;",
@@ -87,7 +88,7 @@ STYLE_MAP = {
     "hover:bg-gray-200": "&:hover { background-color: #e5e7eb; }",
 }
 
-def generate_css(utility_classes: set) -> str:
+def generate_css(utility_classes: set, style_map: Dict[str, str]) -> str:
     """
     Verilen utility sınıf listesine göre CSS içeriği oluşturur.
     """
@@ -98,7 +99,7 @@ def generate_css(utility_classes: set) -> str:
 
     for class_name in sorted(list(utility_classes)):
         # Haritada karşılığı olan sınıfları al
-        css_rule = STYLE_MAP.get(class_name)
+        css_rule = style_map.get(class_name)
         
         if css_rule:
             # & sembolü varsa (variant'lar için), onu .sınıf_adı ile değiştir
@@ -125,3 +126,23 @@ def extract_classes(html_content: str) -> set:
         all_classes.update(class_string.split())
         
     return all_classes
+
+def get_style_map(config: Dict[str, Any]) -> Dict[str, str]:
+    """
+    Tema ayarlarını kullanarak dinamik STYLE_MAP'i oluşturur.
+    """
+    # Mevcut statik haritayı kopyala
+    style_map = STATIC_STYLE_MAP.copy()
+    
+    theme_settings = config.get("theme", {})
+    
+    # Renkleri haritaya ekle
+    if "colors" in theme_settings:
+        for name, value in theme_settings["colors"].items():
+            # bg- ve text- varyantları
+            style_map[f"bg-{name}"] = f"background-color: {value};"
+            style_map[f"text-{name}"] = f"color: {value};"
+            # border- varyantı
+            style_map[f"border-{name}"] = f"border-color: {value};"
+
+    return style_map
