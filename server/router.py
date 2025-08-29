@@ -1,4 +1,5 @@
 # bead/server/router.py
+
 import os
 import importlib.util
 from starlette.routing import Route, Mount
@@ -9,6 +10,7 @@ from itsdangerous import TimedSerializer
 from itsdangerous import BadSignature
 import os
 import pathlib
+import inspect # inspect modülünü ekledik
 
 from bead.compiler.parser import parse_bead_file, find_return_value
 from bead.compiler.renderer import render_page
@@ -35,8 +37,8 @@ async def handle_request_and_render(file_path, request):
         return HTMLResponse("<h1>404 Sayfa Bulunamadı</h1>", status_code=404)
 
     # Dosya içeriğini güvenli bir ortamda çalıştır
-    local_namespace = {}
-    global_namespace = {
+    # Tek bir isim alanı (namespace) kullanıyoruz
+    page_namespace = {
         '__file__': file_path,
         '__name__': os.path.splitext(os.path.basename(file_path))[0],
         'Page': __import__('bead.ui.core_components').ui.core_components.Page,
@@ -48,14 +50,17 @@ async def handle_request_and_render(file_path, request):
         'Image': __import__('bead.ui.core_components').ui.core_components.Image,
         'Form': __import__('bead.ui.core_components').ui.core_components.Form,
         'Input': __import__('bead.ui.core_components').ui.core_components.Input,
+        # async-test için asyncio ve random ekliyoruz
+        'asyncio': __import__('asyncio'),
+        'random': __import__('random')
     }
 
     try:
-        # Dosya içeriğini yerel ve genel isim alanında çalıştır
-        exec(source_code, global_namespace, local_namespace)
+        # Dosya içeriğini tek bir isim alanında çalıştır
+        exec(source_code, page_namespace)
         
-        # 'default' fonksiyonunu yerel isim alanından al
-        default_func = local_namespace.get('default')
+        # 'default' fonksiyonunu yeni isim alanından al
+        default_func = page_namespace.get('default')
 
         if not default_func:
             return HTMLResponse("<h1>Derleme Hatası</h1><p>'default' fonksiyonu bulunamadı.</p>", status_code=500)
@@ -76,7 +81,12 @@ async def handle_request_and_render(file_path, request):
     
     # default fonksiyonunu çağır ve Component ağacını al
     try:
-        component_tree = default_func(params, context)
+        if inspect.iscoroutinefunction(default_func):
+            # Eğer fonksiyon asenkron ise await ile çağır
+            component_tree = await default_func(params, context)
+        else:
+            # Fonksiyon senkron ise direkt çağır
+            component_tree = default_func(params, context)
     except Exception as e:
         return HTMLResponse(f"<h1>Çalıştırma Hatası</h1><p>Sayfa fonksiyonunu çalıştırırken bir hata oluştu: {e}</p>", status_code=500)
 

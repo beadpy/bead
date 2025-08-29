@@ -68,18 +68,6 @@ def start_dev_server(project_path):
 
     print("Bead Development Server is starting...")
     
-    try:
-        pages_dir = os.path.join(full_path, "pages")
-        for root, dirs, files in os.walk(pages_dir):
-            for file_name in files:
-                if file_name.endswith(".bead"):
-                    file_path = os.path.join(root, file_name)
-                    parse_bead_file(file_path)
-        print("INFO:  All .bead files compiled successfully.")
-    except CompilerError as e:
-        print(f"ERROR: Compilation error: {e}")
-        return
-
     # Check for port in config file and use default if not found
     try:
         config = load_config(full_path)
