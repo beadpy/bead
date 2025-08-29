@@ -1,24 +1,15 @@
-# bead/server/middleware.py
-
 from starlette.middleware import Middleware
 from starlette.responses import Response
-from starlette.middleware.sessions import SessionMiddleware # Yeni import
-
-# Diğer middleware sınıfları burada kalacak
-# ...
+from starlette.middleware.sessions import SessionMiddleware
 
 class LoggingMiddleware:
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        # İstek işlenmeden önce yapılacaklar
         print("INFO:  Middleware: Gelen istek:", scope['path'])
-
-        # Uygulamayı çağır
+        
         await self.app(scope, receive, send)
-
-        # Yanıt gönderildikten sonra yapılacaklar
         print("INFO:  Middleware: İstek tamamlandı.")
 
 class SecurityHeadersMiddleware:
@@ -32,11 +23,9 @@ class SecurityHeadersMiddleware:
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
-                # Güvenlik başlıklarını ekle
                 message["headers"].append([b"X-Frame-Options", b"DENY"])
                 message["headers"].append([b"X-Content-Type-Options", b"nosniff"])
 
-                # CSP'yi konfigürasyondan al ve ekle
                 config = scope['app'].state.config
                 csp_policy = config.get("security", {}).get("csp")
                 if csp_policy:

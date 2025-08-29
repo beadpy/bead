@@ -1,57 +1,36 @@
-# bead/compiler/renderer.py
-
 import html
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 from bead.styles.compiler import extract_classes, get_style_map
 from typing import Optional, Awaitable, List
 import asyncio
 
-# Bu küme, tüm render işlemlerinde bulunan özel CSS stillerini toplayacak.
 _all_custom_styles = set()
 _all_utility_classes = set()
 
 def escape_html(text: str) -> str:
-    """
-    HTML özel karakterlerini kaçırır.
-    """
     return html.escape(text, quote=True)
 
-# render_component fonksiyonu artık eşzamansız
 async def render_component(component: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
-    """
-    Tek bir bileşeni HTML string'ine dönüştürür.
-    Bu bir recursive (özyinelemeli) fonksiyondur.
-    """
     if not isinstance(component, Component):
-        # Eğer girdi bir bileşen değilse, string olarak kabul et ve kaçırarak döndür
         return escape_html(str(component))
-    
-    # Her bileşenin props'unu al
+
     props = component.props
     component_type = component.component_type
-
-    # Stilleri ve diğer nitelikleri HTML niteliklerine çevir
     attrs = ""
-    # Olay (event) niteliklerini işle
+
     for key, value in props.items():
         if key.startswith("on"):
-            # 'onclick' -> 'data-bead-event-onclick'
             attrs += f' data-bead-event-{key}="{escape_html(str(value))}"'
             
-    # Özel stil toplama işlemini burada yapıyoruz
     if "custom_style" in props and props["custom_style"] is not None:
-        # Rastgele değerler içerebildiği için direkt olarak kümeye ekle
         _all_custom_styles.add(f' .custom-style-{id(component)} {{ {props["custom_style"]} }}')
-        # Oluşturulan benzersiz sınıf adını class listesine ekle
         if "style" in props and props["style"] is not None:
             props["style"] += f" custom-style-{id(component)}"
         else:
             props["style"] = f" custom-style-{id(component)}"
 
-    # Sınıf toplama işlemini burada yapıyoruz
     if "style" in props and props["style"] is not None:
         attrs += f' class="{escape_html(props["style"])}"'
-        # Stilleri çıkar ve kümeye ekle
         found_classes = extract_classes(f'class="{props["style"]}"')
         utility_classes.update(found_classes)
 
@@ -63,7 +42,6 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
     if "as_" in props:
         tag = props["as_"]
     else:
-        # Varsayılan etiketleri belirle
         tag = {
             "Page": "html",
             "Text": "p",
@@ -78,11 +56,9 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
 
     children_html = ""
     if "children" in props and isinstance(props["children"], list):
-        # Çocuk bileşenleri eşzamansız olarak render et ve sınıflarını topla
         render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]]
         children_html = "".join(await asyncio.gather(*render_tasks))
 
-    # Image bileşeni için özel işleme
     if component_type == "Image":
         if "src" in props:
             attrs += f' src="{escape_html(props["src"])}"'
@@ -90,26 +66,22 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
             attrs += f' alt="{escape_html(props["alt"])}"'
         return f'<{tag}{attrs} />'
 
-    # Link bileşeni için özel işleme
     if component_type == "Link":
         label = escape_html(props.get("label", ""))
         return f'<{tag}{attrs}>{label}</{tag}>'
 
-    # Form bileşeni için özel işleme
     if component_type == "Form":
         if "action" in props:
             attrs += f' action="{escape_html(props["action"])}"'
         if "method" in props:
             attrs += f' method="{escape_html(props["method"])}"'
         
-        # CSRF token'ı varsa gizli input olarak ekle
         if csrf_token is not None:
             csrf_input = f'<input type="hidden" name="csrf_token" value="{escape_html(csrf_token)}" />'
             children_html += csrf_input
             
         return f'<{tag}{attrs}>{children_html}</{tag}>'
 
-    # Input bileşeni için özel işleme
     if component_type == "Input":
         if "name" in props:
             attrs += f' name="{escape_html(props["name"])}"'
@@ -122,7 +94,6 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
         return f'<{tag}{attrs} />'
 
     if component_type == "Page":
-        # Page bileşeni özel bir yapıda olduğu için farklı render edilir
         title = escape_html(props.get("title", "Bead App"))
         meta_html = ""
         if "meta" in props and isinstance(props["meta"], dict):
@@ -132,11 +103,9 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
                 else:
                     meta_html += f'    <meta name="{escape_html(name)}" content="{escape_html(content)}">\n'
         
-        # Düzeltme burada: await asyncio.gather ile tüm body çocuklarını eşzamansız olarak render et
-        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["body"]]
+        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]]
         body_content = "".join(await asyncio.gather(*render_tasks))
         
-        # Favicon için meta etiketi ekle
         head_content = f"""
 <head>
     <title>{title}</title>
@@ -151,24 +120,16 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
     
     if component_type == "Button":
         label = escape_html(props.get("label", "Button"))
-        # onclick gibi event'ler için özel nitelikler ekleniyor
         return f'<{tag}{attrs}>{label}</{tag}>'
 
-    # Varsayılan olarak çocukları olan bir etikete dönüştür
     return f'<{tag}{attrs}>{children_html}</{tag}>'
 
-# render_page fonksiyonu artık eşzamansız
 async def render_page(component_tree: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
-    """
-    Derlenmiş bileşen ağacını alıp ana HTML sayfasını oluşturur.
-    """
     html_content = await render_component(component_tree, utility_classes, csrf_token=csrf_token)
 
-    # Yeni eklenen CSS dosyasını burada sayfaya ekliyoruz
     css_link = '<link rel="stylesheet" href="/public/bead.css">'
     html_content = html_content.replace('</head>', f'    {css_link}\n</head>')
     
-    # Özel stil blokunu ekle
     custom_styles_str = "\n".join(list(_all_custom_styles))
     if custom_styles_str:
         style_block = f'\n    <style>{custom_styles_str}</style>\n'

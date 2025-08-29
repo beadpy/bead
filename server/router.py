@@ -1,5 +1,3 @@
-# bead/server/router.py
-
 import os
 import importlib.util
 from starlette.routing import Route, Mount
@@ -12,26 +10,19 @@ import os
 import pathlib
 import inspect
 import asyncio
-# HTTPException'ı buraya ekliyoruz
 from starlette.exceptions import HTTPException
 from bead.compiler.parser import parse_bead_file, find_return_value
 from bead.compiler.renderer import render_page
 from bead.styles.compiler import generate_css, extract_classes, get_style_map
 from bead.exceptions import CompilerError
 
-# Bu küme, tüm render işlemlerinde bulunan stil sınıflarını toplayacak.
-# Set kullanmamızın sebebi, tekrar edenleri otomatik olarak elemesidir.
 _all_utility_classes = set()
 
 async def handle_request_and_render(file_path, request):
-    """
-    İstekleri işler, .bead dosyasını parse eder, HTML olarak render eder ve
-    stil sınıflarını toplayarak CSS dosyasını günceller.
-    """
+
     global _all_utility_classes
     _all_utility_classes.clear()
 
-    # Dosya bulunamazsa HTTPException fırlat
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Page not found.")
 
@@ -82,7 +73,6 @@ async def handle_request_and_render(file_path, request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Runtime error in page function: {e}")
 
-    # Düzeltme burada: Eğer layout varsa, sayfa içeriğini layout'un içine yerleştir
     layout_path = os.path.join(os.path.dirname(file_path), "_layout.bead")
     if os.path.exists(layout_path):
         try:
@@ -128,9 +118,6 @@ async def handle_request_and_render(file_path, request):
     return HTMLResponse(html_content)
 
 async def _handle_action(request, module):
-    """
-    Olay handler'ını çalıştırır ve yanıtı işler.
-    """
     if request.method == "POST":
         config = request.app.state.config
         security_settings = config.get("security", {})
@@ -161,7 +148,6 @@ async def _handle_action(request, module):
 
     handler_func = getattr(module, 'handler')
     
-    # Handler asenkron ise await ile çağır
     if inspect.iscoroutinefunction(handler_func):
         response_data = await handler_func(request)
     else:
@@ -171,19 +157,14 @@ async def _handle_action(request, module):
         if isinstance(response_data, RedirectResponse):
             return response_data
         
-        # Eğer yanıt bir sözlükse, JSONResponse'a dönüştür.
         if isinstance(response_data, dict):
             return JSONResponse(response_data)
         
-        # Mevcut JSONResponse ve diğer yanıt türleri için
         return response_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Runtime error in API handler: {e}")
 
 async def handle_api_request(request):
-    """
-    _events/ adresine gelen istekleri işler ve API handler'larına yönlendirir.
-    """
     handler_name = request.path_params.get("handler")
     api_dir = os.path.join(request.app.state.project_path, "pages", "api")
     handler_path = os.path.join(api_dir, f"{handler_name}.py")
@@ -198,9 +179,6 @@ async def handle_api_request(request):
     return await _handle_action(request, module)
 
 async def handle_api_endpoint(request):
-    """
-    /api/ adresine gelen standart POST isteklerini işler.
-    """
     handler_name = request.path_params.get("handler")
     api_dir = os.path.join(request.app.state.project_path, "pages", "api")
     handler_path = os.path.join(api_dir, f"{handler_name}.py")
@@ -215,9 +193,6 @@ async def handle_api_endpoint(request):
     return await _handle_action(request, module)
 
 def get_routes(project_path):
-    """
-    pages/ klasörünü tarar ve dinamik olarak rotalar oluşturur.
-    """
     pages_path = pathlib.Path(project_path) / "pages"
     public_path = pathlib.Path(project_path) / "public"
     routes = []
@@ -226,35 +201,25 @@ def get_routes(project_path):
         print(f"Hata: 'pages' dizini '{project_path}' içinde bulunamadı.")
         return []
 
-    # Statik dosyalar için rota oluştur
     if public_path.exists():
         routes.append(Mount("/public", StaticFiles(directory=public_path, html=True), name="static"))
     
-    # Layout dosyalarını ve normal sayfaları ayır
     layout_routes = []
     page_routes = []
     
-    # .bead dosyalarını bul ve rotalarını oluştur
     for file_path in pages_path.rglob('*.bead'):
-        # Özel _layout dosyaları için ayrı bir rota oluştur
         if file_path.name.startswith('_layout'):
             continue
-        
-        # Relatif yolu al ve URL formatına çevir
         relative_path_parts = file_path.relative_to(pages_path).parts
         
-        # Uzantıyı kaldır
         page_name = relative_path_parts[-1].removesuffix('.bead')
         path_parts = list(relative_path_parts[:-1]) + [page_name]
         
-        # Dinamik segmentleri { } ile değiştir
         url_parts = []
         for p in path_parts:
-            # [...slug] -> {slug:path}
             if p.startswith("[...") and p.endswith("]"):
                 param_name = p[4:-1]
                 url_parts.append(f"{{{param_name}:path}}")
-            # [id] -> {id}
             elif p.startswith("[") and p.endswith("]"):
                 param_name = p[1:-1]
                 url_parts.append(f"{{{param_name}}}")
@@ -267,16 +232,12 @@ def get_routes(project_path):
         
         page_routes.append(Route(url_path, endpoint=partial(handle_request_and_render, str(file_path))))
 
-    # index.bead için özel rota
     index_file = pages_path / "index.bead"
     if index_file.exists():
         page_routes.append(Route("/", endpoint=partial(handle_request_and_render, str(index_file))))
 
-    # Normal rotaları layout rotalarından önce ekle
     routes.extend(page_routes)
-    routes.extend(layout_routes)
-    
-    # Özel API rotalarını ekle (bu kısım daha önce yerleştirilmeli)
+    routes.extend(layout_routes)    
     routes.append(Route("/_events/{handler}", endpoint=handle_api_request, methods=["POST"]))
     routes.append(Route("/api/{handler}", endpoint=handle_api_endpoint, methods=["POST"]))
 

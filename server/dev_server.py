@@ -1,5 +1,3 @@
-# bead/server/dev_server.py
-
 import uvicorn
 from starlette.applications import Starlette
 from starlette.routing import Route, Mount
@@ -54,9 +52,6 @@ class ChangeEventHandler(FileSystemEventHandler):
         self.loop.call_soon_threadsafe(self.restart_event.set)
 
 def start_dev_server(project_path):
-    """
-    Starts the development server for the specified project path.
-    """
     full_path = os.path.abspath(project_path)
     if full_path not in sys.path:
         sys.path.insert(0, full_path)
@@ -80,23 +75,18 @@ def start_dev_server(project_path):
             config = uvicorn.Config(app, host="0.0.0.0", port=port)
             server_process = threading.Thread(target=run_server, args=(config,), daemon=True)
             
-            # Sunucu iş parçağını başlat
             server_process.start()
 
-            # Watchdog ile dosya değişikliklerini izle
             event_handler = ChangeEventHandler(asyncio.get_event_loop(), restart_event)
             observer = Observer()
             observer.schedule(event_handler, full_path, recursive=True)
             observer.start()
 
-            # Yeniden başlatma sinyalini bekle
             try:
                 asyncio.get_event_loop().run_until_complete(restart_event)
             except KeyboardInterrupt:
                 print("INFO:  Sunucu durduruluyor...")
                 break
-            
-            # Watchdog izleyicisini durdur
             observer.stop()
             observer.join()
 

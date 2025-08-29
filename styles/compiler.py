@@ -1,10 +1,7 @@
 import re
 from typing import Dict, Any
 
-# Tailwind benzeri utility sınıflarının CSS karşılıklarını içeren harita.
-# Bu sözlük, ileride projenin konfigürasyon dosyasına taşınabilir.
 STATIC_STYLE_MAP = {
-    # Sizing
     "w-full": "width: 100%;",
     "h-full": "height: 100%;",
     "max-w-xl": "max-width: 36rem;",
@@ -15,8 +12,7 @@ STATIC_STYLE_MAP = {
     "w-24": "width: 6rem;",
     "h-24": "height: 6rem;",
     "w-40": "width: 10rem;",
-    
-    # Typography
+
     "text-xs": "font-size: 0.75rem;",
     "text-sm": "font-size: 0.875rem;",
     "text-base": "font-size: 1rem;",
@@ -31,7 +27,6 @@ STATIC_STYLE_MAP = {
     "font-inter": "font-family: 'Inter', sans-serif;",
     "no-underline": "text-decoration: none;",
     
-    # Spacing (p-*, px-*, py-*, m-*, mx-*, my-*)
     "p-0": "padding: 0;",
     "p-1": "padding: 0.25rem;",
     "p-2": "padding: 0.5rem;",
@@ -49,7 +44,6 @@ STATIC_STYLE_MAP = {
     "mb-4": "margin-bottom: 1rem;",
     "mx-auto": "margin-left: auto; margin-right: auto;",
 
-    # Flexbox
     "flex": "display: flex;",
     "flex-col": "flex-direction: column;",
     "flex-row": "flex-direction: row;",
@@ -60,7 +54,6 @@ STATIC_STYLE_MAP = {
     "gap-6": "gap: 1.5rem;",
     "gap-8": "gap: 2rem;",
     
-    # Backgrounds & Borders
     "bg-white": "background-color: #ffffff;",
     "bg-gray-100": "background-color: #f3f4f6;",
     "bg-gray-50": "background-color: #f9fafb;",
@@ -71,78 +64,54 @@ STATIC_STYLE_MAP = {
     "rounded-xl": "border-radius: 0.75rem;",
     "rounded-2xl": "border-radius: 1rem;",
     
-    # Effects
     "shadow": "box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);",
     "shadow-xl": "box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);",
 
-    # Colors
     "text-gray-600": "color: #4b5563;",
     "text-gray-800": "color: #1f2937;",
     "text-gray-900": "color: #111827;",
     "text-white": "color: #ffffff;",
     "text-indigo-600": "color: #4f46e5;",
     
-    # State Variants
     "hover:bg-indigo-700": "&:hover { background-color: #4338ca; }",
     "hover:text-indigo-700": "&:hover { color: #4338ca; }",
     "hover:bg-gray-200": "&:hover { background-color: #e5e7eb; }",
 }
 
 def generate_css(utility_classes: set, style_map: Dict[str, str]) -> str:
-    """
-    Verilen utility sınıf listesine göre CSS içeriği oluşturur.
-    """
     css_rules = []
     
-    # `@import` kuralını CSS dosyasının başına ekle
     css_rules.append("@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');")
 
     for class_name in sorted(list(utility_classes)):
-        # Haritada karşılığı olan sınıfları al
         css_rule = style_map.get(class_name)
         
         if css_rule:
-            # & sembolü varsa (variant'lar için), onu .sınıf_adı ile değiştir
             if "&" in css_rule:
                 selector = f".{class_name.replace(':', '\\:')}"
                 css_rules.append(f"{css_rule.replace('&', selector)}")
             else:
                 css_rules.append(f".{class_name} {{ {css_rule} }}")
     
-    # CSS kurallarını birleştir
     return "\n".join(css_rules)
 
 def extract_classes(html_content: str) -> set:
-    """
-    HTML içeriğinden tüm stil sınıflarını (class="..." veya style="...") çıkarır.
-    """
-    # Regex ile class niteliklerini bul
     classes_from_html = re.findall(r'class="([^"]*)"', html_content)
     
-    # Tüm sınıfları bir set içinde topla (tekrar edenleri kaldırmak için)
     all_classes = set()
     for class_string in classes_from_html:
-        # Boşluklara göre ayır ve sete ekle
         all_classes.update(class_string.split())
         
     return all_classes
 
 def get_style_map(config: Dict[str, Any]) -> Dict[str, str]:
-    """
-    Tema ayarlarını kullanarak dinamik STYLE_MAP'i oluşturur.
-    """
-    # Mevcut statik haritayı kopyala
     style_map = STATIC_STYLE_MAP.copy()
     
     theme_settings = config.get("theme", {})
-    
-    # Renkleri haritaya ekle
     if "colors" in theme_settings:
         for name, value in theme_settings["colors"].items():
-            # bg- ve text- varyantları
             style_map[f"bg-{name}"] = f"background-color: {value};"
             style_map[f"text-{name}"] = f"color: {value};"
-            # border- varyantı
             style_map[f"border-{name}"] = f"border-color: {value};"
 
     return style_map

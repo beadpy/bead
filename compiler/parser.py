@@ -1,24 +1,15 @@
-# bead/compiler/parser.py
-
 import ast
 import inspect
-import os # Eklenen import
+import os
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 from bead.exceptions import CompilerError
 
-# .bead dosyaları için önbellek (cache) sözlüğü
 _file_cache = {}
 
 def parse_bead_file(file_path: str):
-    """
-    Reads a .bead file and returns a Component Tree.
-    Uses caching to avoid re-parsing unchanged files.
-    """
     try:
-        # Dosyanın son değiştirilme zamanını al
         last_modified = os.path.getmtime(file_path)
-        
-        # Eğer dosya önbellekteyse ve değişmediyse, önbellekteki ağacı döndür
+
         if file_path in _file_cache and _file_cache[file_path]["last_modified"] == last_modified:
             print(f"INFO:  {file_path} from cache.")
             return _file_cache[file_path]["tree"]
@@ -28,15 +19,12 @@ def parse_bead_file(file_path: str):
     with open(file_path, 'r', encoding='utf-8') as f:
         source_code = f.read()
 
-    # Convert source code to AST (Abstract Syntax Tree)
     try:
         tree = ast.parse(source_code, filename=file_path)
     except SyntaxError as e:
-        # Raise CompilerError with detailed line and column information.
         error_message = f"Syntax error: {e.msg}"
         raise CompilerError(error_message, file_path, e.lineno, e.offset)
 
-    # Search for a function named 'default'
     default_func = None
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == 'default':
@@ -46,10 +34,8 @@ def parse_bead_file(file_path: str):
     if not default_func:
         raise CompilerError(f"Function 'default' not found. A .bead file must contain a 'default' function.", file_path)
 
-    # Process the return value of the function
     component_tree = find_return_value(default_func, file_path)
     
-    # Yeni ağacı ve zaman damgasını önbelleğe kaydet
     _file_cache[file_path] = {
         "last_modified": last_modified,
         "tree": component_tree
@@ -58,27 +44,17 @@ def parse_bead_file(file_path: str):
     return component_tree
 
 def clear_cache():
-    """
-    Clears the compiler cache.
-    """
     _file_cache.clear()
 
 def find_return_value(func_node, file_path: str):
-    """
-    Finds the 'return' statement in an AST function node and processes the component.
-    """
     for node in func_node.body:
         if isinstance(node, ast.Return):
-            # Pass line and column information to the next function
             return process_component_call(node.value, file_path, node.lineno, node.col_offset)
-    
-    # If no return statement is found, raise an error with function's start line info.
+
     raise CompilerError(f"The 'default' function must return a Component object.", file_path, func_node.lineno, func_node.col_offset)
 
 def process_component_call(node, file_path: str, line_no: int, col_offset: int):
-    """
-    Converts a component call in the AST into a Component object.
-    """
+
     if not isinstance(node, ast.Call):
         raise CompilerError(f"Return value must be a component call (e.g., Page(...)).", file_path, line_no, col_offset)
     
@@ -88,12 +64,10 @@ def process_component_call(node, file_path: str, line_no: int, col_offset: int):
     if not component_class or not inspect.isclass(component_class) or not issubclass(component_class, Component):
         raise CompilerError(f"Invalid component '{func_name}' found.", file_path, line_no, col_offset)
 
-    # Process positional arguments
     args = []
     for arg_node in node.args:
         args.append(process_ast_node_value(arg_node, file_path, line_no, col_offset))
-        
-    # Process keyword arguments (kwargs)
+
     kwargs = {}
     for keyword in node.keywords:
         key = keyword.arg
@@ -103,12 +77,10 @@ def process_component_call(node, file_path: str, line_no: int, col_offset: int):
     return component_class(*args, **kwargs)
 
 def process_ast_node_value(node, file_path: str, line_no: int, col_offset: int):
-    """
-    Converts a value from an AST node to a Python data type.
-    """
-    if isinstance(node, ast.Str): # For Python < 3.8
+    
+    if isinstance(node, ast.Str):
         return node.s
-    elif isinstance(node, ast.Constant): # For Python >= 3.8
+    elif isinstance(node, ast.Constant):
         return node.value
     elif isinstance(node, ast.Num):
         return node.n
