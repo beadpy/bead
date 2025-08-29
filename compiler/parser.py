@@ -3,13 +3,13 @@ import inspect
 import os
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 from bead.exceptions import CompilerError
+from bead.component import component
 
 _file_cache = {}
 
 def parse_bead_file(file_path: str):
     try:
         last_modified = os.path.getmtime(file_path)
-
         if file_path in _file_cache and _file_cache[file_path]["last_modified"] == last_modified:
             print(f"INFO:  {file_path} from cache.")
             return _file_cache[file_path]["tree"]
@@ -50,34 +50,41 @@ def find_return_value(func_node, file_path: str):
     for node in func_node.body:
         if isinstance(node, ast.Return):
             return process_component_call(node.value, file_path, node.lineno, node.col_offset)
-
+    
     raise CompilerError(f"The 'default' function must return a Component object.", file_path, func_node.lineno, func_node.col_offset)
 
 def process_component_call(node, file_path: str, line_no: int, col_offset: int):
-
     if not isinstance(node, ast.Call):
-        raise CompilerError(f"Return value must be a component call (e.g., Page(...)).", file_path, line_no, col_offset)
+        raise CompilerError(f"Dönüş değeri bir bileşen çağrısı olmalıdır (örn. Page(...)).", file_path, line_no, col_offset)
     
     func_name = node.func.id
     
-    component_class = globals().get(func_name)
-    if not component_class or not inspect.isclass(component_class) or not issubclass(component_class, Component):
-        raise CompilerError(f"Invalid component '{func_name}' found.", file_path, line_no, col_offset)
+    component_definition = globals().get(func_name)
+    
+    if not component_definition:
+        raise CompilerError(f"Bileşen '{func_name}' bulunamadı.", file_path, line_no, col_offset)
 
     args = []
     for arg_node in node.args:
         args.append(process_ast_node_value(arg_node, file_path, line_no, col_offset))
-
+        
     kwargs = {}
     for keyword in node.keywords:
         key = keyword.arg
         value = process_ast_node_value(keyword.value, file_path, line_no, col_offset)
         kwargs[key] = value
 
-    return component_class(*args, **kwargs)
+    if inspect.isclass(component_definition) and issubclass(component_definition, Component):
+        return component_definition(*args, **kwargs)
+    elif inspect.isfunction(component_definition):
+        try:
+            return component_definition(*args, **kwargs)
+        except TypeError as e:
+            raise CompilerError(f"Fonksiyon tabanlı bileşen çağrısında hata: {e}", file_path, line_no, col_offset)
+    else:
+        raise CompilerError(f"'{func_name}' geçerli bir bileşen değil.", file_path, line_no, col_offset)
 
 def process_ast_node_value(node, file_path: str, line_no: int, col_offset: int):
-    
     if isinstance(node, ast.Str):
         return node.s
     elif isinstance(node, ast.Constant):
