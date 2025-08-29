@@ -1,5 +1,4 @@
 # bead/server/router.py
-
 import os
 import importlib.util
 from starlette.routing import Route, Mount
@@ -9,10 +8,12 @@ from functools import partial
 from itsdangerous import TimedSerializer
 from itsdangerous import BadSignature
 import os
+import pathlib
 
-from bead.compiler.parser import parse_bead_file
+from bead.compiler.parser import parse_bead_file, find_return_value
 from bead.compiler.renderer import render_page
 from bead.styles.compiler import generate_css, extract_classes, get_style_map
+from bead.exceptions import CompilerError
 
 # Bu küme, tüm render işlemlerinde bulunan stil sınıflarını toplayacak.
 # Set kullanmamızın sebebi, tekrar eden sınıfları otomatik olarak elemesidir.
@@ -25,8 +26,59 @@ async def handle_request_and_render(file_path, request):
     """
     global _all_utility_classes
     _all_utility_classes.clear()
+
+    # Dosyanın içeriğini oku
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            source_code = f.read()
+    except FileNotFoundError:
+        return HTMLResponse("<h1>404 Sayfa Bulunamadı</h1>", status_code=404)
+
+    # Dosya içeriğini güvenli bir ortamda çalıştır
+    local_namespace = {}
+    global_namespace = {
+        '__file__': file_path,
+        '__name__': os.path.splitext(os.path.basename(file_path))[0],
+        'Page': __import__('bead.ui.core_components').ui.core_components.Page,
+        'Text': __import__('bead.ui.core_components').ui.core_components.Text,
+        'Button': __import__('bead.ui.core_components').ui.core_components.Button,
+        'Card': __import__('bead.ui.core_components').ui.core_components.Card,
+        'Stack': __import__('bead.ui.core_components').ui.core_components.Stack,
+        'Link': __import__('bead.ui.core_components').ui.core_components.Link,
+        'Image': __import__('bead.ui.core_components').ui.core_components.Image,
+        'Form': __import__('bead.ui.core_components').ui.core_components.Form,
+        'Input': __import__('bead.ui.core_components').ui.core_components.Input,
+    }
+
+    try:
+        # Dosya içeriğini yerel ve genel isim alanında çalıştır
+        exec(source_code, global_namespace, local_namespace)
+        
+        # 'default' fonksiyonunu yerel isim alanından al
+        default_func = local_namespace.get('default')
+
+        if not default_func:
+            return HTMLResponse("<h1>Derleme Hatası</h1><p>'default' fonksiyonu bulunamadı.</p>", status_code=500)
     
-    component_tree = parse_bead_file(file_path)
+    except Exception as e:
+        return HTMLResponse(f"<h1>Derleme Hatası</h1><p>Dosyayı çalıştırırken bir hata oluştu: {e}</p>", status_code=500)
+
+    # Request ve rota parametrelerinden bir context objesi oluştur
+    context = {
+        "request": request,
+        "query": request.query_params,
+        "headers": request.headers,
+        "session": request.session
+    }
+
+    # Dinamik segmentleri parametre olarak işle
+    params = request.path_params
+    
+    # default fonksiyonunu çağır ve Component ağacını al
+    try:
+        component_tree = default_func(params, context)
+    except Exception as e:
+        return HTMLResponse(f"<h1>Çalıştırma Hatası</h1><p>Sayfa fonksiyonunu çalıştırırken bir hata oluştu: {e}</p>", status_code=500)
 
     if not component_tree:
         return HTMLResponse("<h1>Derleme Hatası</h1><p>Bileşen ağacı oluşturulamadı.</p>", status_code=500)
@@ -141,45 +193,46 @@ def get_routes(project_path):
     """
     pages/ klasörünü tarar ve dinamik olarak rotalar oluşturur.
     """
-    pages_dir = os.path.join(project_path, "pages")
-    public_dir = os.path.join(project_path, "public")
+    pages_path = pathlib.Path(project_path) / "pages"
+    public_path = pathlib.Path(project_path) / "public"
     routes = []
     
-    if not os.path.exists(pages_dir):
+    if not pages_path.exists():
         print(f"Hata: 'pages' dizini '{project_path}' içinde bulunamadı.")
         return []
-    
-    favicon_path = os.path.join(public_dir, "favicon.ico")
-    if os.path.exists(favicon_path):
-        routes.append(Route("/favicon.ico", endpoint=lambda r: RedirectResponse(url="/public/favicon.ico")))
 
-    index_path = os.path.join(pages_dir, "index.bead")
-    if os.path.exists(index_path):
-        # handle_request_and_render fonksiyonunu global olarak çağırıyoruz
-        routes.append(Route("/", endpoint=partial(handle_request_and_render, index_path)))
+    # Statik dosyalar için rota oluştur
+    if public_path.exists():
+        routes.append(Mount("/public", StaticFiles(directory=public_path, html=True), name="static"))
     
-    for root, dirs, files in os.walk(pages_dir):
-        dirs[:] = [d for d in dirs if not d.startswith("api") and not d.startswith("_events")]
-        files[:] = [f for f in files if not f.startswith("_layout")]
+    # .bead dosyalarını bul ve rotalarını oluştur
+    for file_path in pages_path.rglob('*.bead'):
+        # Özel dosyaları atla
+        if file_path.name.startswith('_layout') or file_path.name == 'index.bead':
+            continue
+
+        # Relatif yolu al ve URL formatına çevir
+        relative_path_parts = file_path.relative_to(pages_path).parts
         
-        for file_name in files:
-            if file_name.endswith(".bead"):
-                full_file_path = os.path.join(root, file_name)
-                relative_path = os.path.relpath(full_file_path, pages_dir)
-                
-                if relative_path == "index.bead":
-                    continue
+        # Uzantıyı kaldır
+        page_name = relative_path_parts[-1].removesuffix('.bead')
+        path_parts = list(relative_path_parts[:-1]) + [page_name]
+        
+        # Dinamik segmentleri { } ile değiştir
+        url_parts = [p.replace("[", "{").replace("]", "}") for p in path_parts]
+        url_path = "/" + "/".join(url_parts)
+        
+        print(f"INFO:  Rota oluşturuldu: {url_path} -> {file_path}")
+        
+        routes.append(Route(url_path, endpoint=partial(handle_request_and_render, str(file_path))))
 
-                url_path = "/" + os.path.splitext(relative_path)[0]
-                url_path = url_path.replace("[", "{").replace("]", "}")
-                
-                routes.append(Route(url_path, endpoint=partial(handle_request_and_render, full_file_path)))
-                
-    if os.path.exists(public_dir):
-        routes.append(Mount("/public", StaticFiles(directory=public_dir, html=True), name="static"))
-
+    # index.bead için özel rota
+    index_file = pages_path / "index.bead"
+    if index_file.exists():
+        routes.append(Route("/", endpoint=partial(handle_request_and_render, str(index_file))))
+    
+    # Özel API rotalarını ekle (bu kısım daha önce yerleştirilmeli)
     routes.append(Route("/_events/{handler}", endpoint=handle_api_request, methods=["POST"]))
-
     routes.append(Route("/api/{handler}", endpoint=handle_api_endpoint, methods=["POST"]))
 
     return routes
