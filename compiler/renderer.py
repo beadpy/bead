@@ -1,9 +1,10 @@
 # bead/compiler/renderer.py
 
-import html # html modülünü import ediyoruz
+import html
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
-from bead.styles.compiler import extract_classes
-from typing import Optional # Bu satırı ekledik.
+from bead.styles.compiler import extract_classes, get_style_map
+from typing import Optional, Awaitable, List
+import asyncio
 
 # Bu küme, tüm render işlemlerinde bulunan özel CSS stillerini toplayacak.
 _all_custom_styles = set()
@@ -15,7 +16,8 @@ def escape_html(text: str) -> str:
     """
     return html.escape(text, quote=True)
 
-def render_component(component: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
+# render_component fonksiyonu artık eşzamansız
+async def render_component(component: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
     """
     Tek bir bileşeni HTML string'ine dönüştürür.
     Bu bir recursive (özyinelemeli) fonksiyondur.
@@ -76,9 +78,10 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
 
     children_html = ""
     if "children" in props and isinstance(props["children"], list):
-        # Çocuk bileşenleri recursive olarak render et ve sınıflarını topla
-        children_html = "".join([render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]])
-    
+        # Çocuk bileşenleri eşzamansız olarak render et ve sınıflarını topla
+        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]]
+        children_html = "".join(await asyncio.gather(*render_tasks))
+
     # Image bileşeni için özel işleme
     if component_type == "Image":
         if "src" in props:
@@ -129,7 +132,9 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
                 else:
                     meta_html += f'    <meta name="{escape_html(name)}" content="{escape_html(content)}">\n'
         
-        body_content = "".join([render_component(child, utility_classes, csrf_token=csrf_token) for child in props["body"]])
+        # Düzeltme burada: await asyncio.gather ile tüm body çocuklarını eşzamansız olarak render et
+        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["body"]]
+        body_content = "".join(await asyncio.gather(*render_tasks))
         
         # Favicon için meta etiketi ekle
         head_content = f"""
@@ -152,11 +157,12 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
     # Varsayılan olarak çocukları olan bir etikete dönüştür
     return f'<{tag}{attrs}>{children_html}</{tag}>'
 
-def render_page(component_tree: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
+# render_page fonksiyonu artık eşzamansız
+async def render_page(component_tree: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
     """
     Derlenmiş bileşen ağacını alıp ana HTML sayfasını oluşturur.
     """
-    html_content = render_component(component_tree, utility_classes, csrf_token=csrf_token)
+    html_content = await render_component(component_tree, utility_classes, csrf_token=csrf_token)
 
     # Yeni eklenen CSS dosyasını burada sayfaya ekliyoruz
     css_link = '<link rel="stylesheet" href="/public/bead.css">'

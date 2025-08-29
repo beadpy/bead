@@ -10,8 +10,8 @@ from itsdangerous import TimedSerializer
 from itsdangerous import BadSignature
 import os
 import pathlib
-import inspect # inspect modülünü ekledik
-
+import inspect
+import asyncio
 from bead.compiler.parser import parse_bead_file, find_return_value
 from bead.compiler.renderer import render_page
 from bead.styles.compiler import generate_css, extract_classes, get_style_map
@@ -29,15 +29,13 @@ async def handle_request_and_render(file_path, request):
     global _all_utility_classes
     _all_utility_classes.clear()
 
-    # Dosyanın içeriğini oku
+    # Sayfa dosyasını oku ve çalıştır
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             source_code = f.read()
     except FileNotFoundError:
         return HTMLResponse("<h1>404 Sayfa Bulunamadı</h1>", status_code=404)
 
-    # Dosya içeriğini güvenli bir ortamda çalıştır
-    # Tek bir isim alanı (namespace) kullanıyoruz
     page_namespace = {
         '__file__': file_path,
         '__name__': os.path.splitext(os.path.basename(file_path))[0],
@@ -50,45 +48,55 @@ async def handle_request_and_render(file_path, request):
         'Image': __import__('bead.ui.core_components').ui.core_components.Image,
         'Form': __import__('bead.ui.core_components').ui.core_components.Form,
         'Input': __import__('bead.ui.core_components').ui.core_components.Input,
-        # async-test için asyncio ve random ekliyoruz
         'asyncio': __import__('asyncio'),
         'random': __import__('random')
     }
 
     try:
-        # Dosya içeriğini tek bir isim alanında çalıştır
         exec(source_code, page_namespace)
-        
-        # 'default' fonksiyonunu yeni isim alanından al
         default_func = page_namespace.get('default')
 
         if not default_func:
             return HTMLResponse("<h1>Derleme Hatası</h1><p>'default' fonksiyonu bulunamadı.</p>", status_code=500)
-    
     except Exception as e:
         return HTMLResponse(f"<h1>Derleme Hatası</h1><p>Dosyayı çalıştırırken bir hata oluştu: {e}</p>", status_code=500)
 
-    # Request ve rota parametrelerinden bir context objesi oluştur
     context = {
         "request": request,
         "query": request.query_params,
         "headers": request.headers,
         "session": request.session
     }
-
-    # Dinamik segmentleri parametre olarak işle
     params = request.path_params
     
     # default fonksiyonunu çağır ve Component ağacını al
     try:
         if inspect.iscoroutinefunction(default_func):
-            # Eğer fonksiyon asenkron ise await ile çağır
             component_tree = await default_func(params, context)
         else:
-            # Fonksiyon senkron ise direkt çağır
             component_tree = default_func(params, context)
     except Exception as e:
         return HTMLResponse(f"<h1>Çalıştırma Hatası</h1><p>Sayfa fonksiyonunu çalıştırırken bir hata oluştu: {e}</p>", status_code=500)
+
+    # Düzeltme burada: Eğer layout varsa, sayfa içeriğini layout'un içine yerleştir
+    layout_path = os.path.join(os.path.dirname(file_path), "_layout.bead")
+    if os.path.exists(layout_path):
+        try:
+            with open(layout_path, "r", encoding="utf-8") as f:
+                layout_source_code = f.read()
+
+            layout_namespace = page_namespace.copy()
+            exec(layout_source_code, layout_namespace)
+            layout_func = layout_namespace.get('default')
+
+            if inspect.iscoroutinefunction(layout_func):
+                layout_tree = await layout_func(params, context, children=component_tree)
+            else:
+                layout_tree = layout_func(params, context, children=component_tree)
+
+            component_tree = layout_tree
+        except Exception as e:
+            return HTMLResponse(f"<h1>Layout Hatası</h1><p>Layout dosyasını işlerken bir hata oluştu: {e}</p>", status_code=500)
 
     if not component_tree:
         return HTMLResponse("<h1>Derleme Hatası</h1><p>Bileşen ağacı oluşturulamadı.</p>", status_code=500)
@@ -97,19 +105,15 @@ async def handle_request_and_render(file_path, request):
     config = request.app.state.config
     security_settings = config.get("security", {})
     if security_settings.get("csrf"):
-        # Gizli anahtarı config'den al, yoksa ortam değişkeninden veya varsayılan bir değer kullan.
         secret_key = config.get("security", {}).get("secret_key", os.environ.get("SECRET_KEY", "a-secret-key-that-should-be-changed"))
         s = TimedSerializer(secret_key)
         csrf_token = s.dumps({'_csrf_token': os.urandom(32).hex()})
         request.session['_csrf_token'] = csrf_token
     
-    # render_page fonksiyonunu yeni parametreyle çağırıyoruz
-    html_content = render_page(component_tree, _all_utility_classes, csrf_token=csrf_token)
+    html_content = await render_page(component_tree, _all_utility_classes, csrf_token=csrf_token)
     
-    # Yapılandırma dosyasından stil haritasını al
     dynamic_style_map = get_style_map(config.settings)
     
-    # CSS dosyasını oluştur ve kaydet
     css_content = generate_css(_all_utility_classes, dynamic_style_map)
     
     public_dir = os.path.join(request.app.state.project_path, "public")
@@ -124,7 +128,6 @@ async def _handle_action(request, module):
     Olay handler'ını çalıştırır ve yanıtı işler.
     """
     if request.method == "POST":
-        # CSRF korumasını kontrol et
         config = request.app.state.config
         security_settings = config.get("security", {})
         if security_settings.get("csrf"):
@@ -137,7 +140,7 @@ async def _handle_action(request, module):
                 form_token = data.get("csrf_token")
                 secret_key = config.get("security", {}).get("secret_key", os.environ.get("SECRET_KEY", "a-secret-key-that-should-be-changed"))
                 s = TimedSerializer(secret_key)
-                s.loads(form_token) # Token'ı doğrula
+                s.loads(form_token)
                 if form_token != csrf_token:
                     return JSONResponse({"error": "CSRF token mismatch."}, status_code=403)
             except (BadSignature, ValueError, KeyError):
@@ -215,12 +218,16 @@ def get_routes(project_path):
     if public_path.exists():
         routes.append(Mount("/public", StaticFiles(directory=public_path, html=True), name="static"))
     
+    # Layout dosyalarını ve normal sayfaları ayır
+    layout_routes = []
+    page_routes = []
+    
     # .bead dosyalarını bul ve rotalarını oluştur
     for file_path in pages_path.rglob('*.bead'):
-        # Özel dosyaları atla
-        if file_path.name.startswith('_layout') or file_path.name == 'index.bead':
+        # Özel _layout dosyaları için ayrı bir rota oluştur
+        if file_path.name.startswith('_layout'):
             continue
-
+        
         # Relatif yolu al ve URL formatına çevir
         relative_path_parts = file_path.relative_to(pages_path).parts
         
@@ -229,17 +236,33 @@ def get_routes(project_path):
         path_parts = list(relative_path_parts[:-1]) + [page_name]
         
         # Dinamik segmentleri { } ile değiştir
-        url_parts = [p.replace("[", "{").replace("]", "}") for p in path_parts]
+        url_parts = []
+        for p in path_parts:
+            # [...slug] -> {slug:path}
+            if p.startswith("[...") and p.endswith("]"):
+                param_name = p[4:-1]
+                url_parts.append(f"{{{param_name}:path}}")
+            # [id] -> {id}
+            elif p.startswith("[") and p.endswith("]"):
+                param_name = p[1:-1]
+                url_parts.append(f"{{{param_name}}}")
+            else:
+                url_parts.append(p)
+
         url_path = "/" + "/".join(url_parts)
         
         print(f"INFO:  Rota oluşturuldu: {url_path} -> {file_path}")
         
-        routes.append(Route(url_path, endpoint=partial(handle_request_and_render, str(file_path))))
+        page_routes.append(Route(url_path, endpoint=partial(handle_request_and_render, str(file_path))))
 
     # index.bead için özel rota
     index_file = pages_path / "index.bead"
     if index_file.exists():
-        routes.append(Route("/", endpoint=partial(handle_request_and_render, str(index_file))))
+        page_routes.append(Route("/", endpoint=partial(handle_request_and_render, str(index_file))))
+
+    # Normal rotaları layout rotalarından önce ekle
+    routes.extend(page_routes)
+    routes.extend(layout_routes)
     
     # Özel API rotalarını ekle (bu kısım daha önce yerleştirilmeli)
     routes.append(Route("/_events/{handler}", endpoint=handle_api_request, methods=["POST"]))
