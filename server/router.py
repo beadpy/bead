@@ -3,7 +3,7 @@
 import os
 import importlib.util
 from starlette.routing import Route, Mount
-from starlette.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 from functools import partial
 from itsdangerous import TimedSerializer
@@ -12,13 +12,15 @@ import os
 import pathlib
 import inspect
 import asyncio
+# HTTPException'ı buraya ekliyoruz
+from starlette.exceptions import HTTPException
 from bead.compiler.parser import parse_bead_file, find_return_value
 from bead.compiler.renderer import render_page
 from bead.styles.compiler import generate_css, extract_classes, get_style_map
 from bead.exceptions import CompilerError
 
 # Bu küme, tüm render işlemlerinde bulunan stil sınıflarını toplayacak.
-# Set kullanmamızın sebebi, tekrar eden sınıfları otomatik olarak elemesidir.
+# Set kullanmamızın sebebi, tekrar edenleri otomatik olarak elemesidir.
 _all_utility_classes = set()
 
 async def handle_request_and_render(file_path, request):
@@ -29,12 +31,15 @@ async def handle_request_and_render(file_path, request):
     global _all_utility_classes
     _all_utility_classes.clear()
 
-    # Sayfa dosyasını oku ve çalıştır
+    # Dosya bulunamazsa HTTPException fırlat
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Page not found.")
+
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             source_code = f.read()
-    except FileNotFoundError:
-        return HTMLResponse("<h1>404 Sayfa Bulunamadı</h1>", status_code=404)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File read error: {e}")
 
     page_namespace = {
         '__file__': file_path,
@@ -57,9 +62,9 @@ async def handle_request_and_render(file_path, request):
         default_func = page_namespace.get('default')
 
         if not default_func:
-            return HTMLResponse("<h1>Derleme Hatası</h1><p>'default' fonksiyonu bulunamadı.</p>", status_code=500)
+            raise HTTPException(status_code=500, detail="'default' function not found.")
     except Exception as e:
-        return HTMLResponse(f"<h1>Derleme Hatası</h1><p>Dosyayı çalıştırırken bir hata oluştu: {e}</p>", status_code=500)
+        raise HTTPException(status_code=500, detail=f"Compilation error: {e}")
 
     context = {
         "request": request,
@@ -69,14 +74,13 @@ async def handle_request_and_render(file_path, request):
     }
     params = request.path_params
     
-    # default fonksiyonunu çağır ve Component ağacını al
     try:
         if inspect.iscoroutinefunction(default_func):
             component_tree = await default_func(params, context)
         else:
             component_tree = default_func(params, context)
     except Exception as e:
-        return HTMLResponse(f"<h1>Çalıştırma Hatası</h1><p>Sayfa fonksiyonunu çalıştırırken bir hata oluştu: {e}</p>", status_code=500)
+        raise HTTPException(status_code=500, detail=f"Runtime error in page function: {e}")
 
     # Düzeltme burada: Eğer layout varsa, sayfa içeriğini layout'un içine yerleştir
     layout_path = os.path.join(os.path.dirname(file_path), "_layout.bead")
@@ -96,10 +100,10 @@ async def handle_request_and_render(file_path, request):
 
             component_tree = layout_tree
         except Exception as e:
-            return HTMLResponse(f"<h1>Layout Hatası</h1><p>Layout dosyasını işlerken bir hata oluştu: {e}</p>", status_code=500)
+            raise HTTPException(status_code=500, detail=f"Layout error: {e}")
 
     if not component_tree:
-        return HTMLResponse("<h1>Derleme Hatası</h1><p>Bileşen ağacı oluşturulamadı.</p>", status_code=500)
+        raise HTTPException(status_code=500, detail="Component tree could not be created.")
     
     csrf_token = None
     config = request.app.state.config
@@ -133,7 +137,7 @@ async def _handle_action(request, module):
         if security_settings.get("csrf"):
             csrf_token = request.session.get('_csrf_token')
             if not csrf_token:
-                return JSONResponse({"error": "CSRF token not found in session."}, status_code=403)
+                raise HTTPException(status_code=403, detail="CSRF token not found in session.")
             
             try:
                 data = await request.json()
@@ -142,9 +146,9 @@ async def _handle_action(request, module):
                 s = TimedSerializer(secret_key)
                 s.loads(form_token)
                 if form_token != csrf_token:
-                    return JSONResponse({"error": "CSRF token mismatch."}, status_code=403)
+                    raise HTTPException(status_code=403, detail="CSRF token mismatch.")
             except (BadSignature, ValueError, KeyError):
-                return JSONResponse({"error": "Invalid CSRF token."}, status_code=403)
+                raise HTTPException(status_code=403, detail="Invalid CSRF token.")
 
     if hasattr(module, '_render_after_event'):
         new_component_tree = await module._render_after_event(request)
@@ -153,20 +157,28 @@ async def _handle_action(request, module):
             return JSONResponse({"patch": html_content})
 
     if not hasattr(module, 'handler'):
-        return JSONResponse({"error": "Handler function not found in module"}, status_code=500)
+        raise HTTPException(status_code=500, detail="Handler function not found in module.")
 
     handler_func = getattr(module, 'handler')
     
-    try:
+    # Handler asenkron ise await ile çağır
+    if inspect.iscoroutinefunction(handler_func):
         response_data = await handler_func(request)
+    else:
+        response_data = handler_func(request)
+
+    try:
         if isinstance(response_data, RedirectResponse):
-            return JSONResponse({"redirect": str(response_data.url)})
-        if isinstance(response_data, JSONResponse):
             return response_data
         
+        # Eğer yanıt bir sözlükse, JSONResponse'a dönüştür.
+        if isinstance(response_data, dict):
+            return JSONResponse(response_data)
+        
+        # Mevcut JSONResponse ve diğer yanıt türleri için
         return response_data
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        raise HTTPException(status_code=500, detail=f"Runtime error in API handler: {e}")
 
 async def handle_api_request(request):
     """
@@ -177,7 +189,7 @@ async def handle_api_request(request):
     handler_path = os.path.join(api_dir, f"{handler_name}.py")
 
     if not os.path.exists(handler_path):
-        return JSONResponse({"error": "Handler not found"}, status_code=404)
+        raise HTTPException(status_code=404, detail="Handler not found.")
 
     spec = importlib.util.spec_from_file_location(handler_name, handler_path)
     module = importlib.util.module_from_spec(spec)
@@ -194,7 +206,7 @@ async def handle_api_endpoint(request):
     handler_path = os.path.join(api_dir, f"{handler_name}.py")
 
     if not os.path.exists(handler_path):
-        return JSONResponse({"error": "Handler not found"}, status_code=404)
+        raise HTTPException(status_code=404, detail="Handler not found.")
 
     spec = importlib.util.spec_from_file_location(handler_name, handler_path)
     module = importlib.util.module_from_spec(spec)
