@@ -1,5 +1,6 @@
 # bead/compiler/renderer.py
 
+import html # html modülünü import ediyoruz
 from bead.ui.core_components import Component, Page, Text, Button, Card, Stack, Input, Form, Link, Image
 from bead.styles.compiler import extract_classes
 from typing import Optional # Bu satırı ekledik.
@@ -8,14 +9,20 @@ from typing import Optional # Bu satırı ekledik.
 _all_custom_styles = set()
 _all_utility_classes = set()
 
+def escape_html(text: str) -> str:
+    """
+    HTML özel karakterlerini kaçırır.
+    """
+    return html.escape(text, quote=True)
+
 def render_component(component: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
     """
     Tek bir bileşeni HTML string'ine dönüştürür.
     Bu bir recursive (özyinelemeli) fonksiyondur.
     """
     if not isinstance(component, Component):
-        # Eğer girdi bir bileşen değilse, string olarak kabul et ve doğrudan döndür
-        return str(component)
+        # Eğer girdi bir bileşen değilse, string olarak kabul et ve kaçırarak döndür
+        return escape_html(str(component))
     
     # Her bileşenin props'unu al
     props = component.props
@@ -27,7 +34,7 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
     for key, value in props.items():
         if key.startswith("on"):
             # 'onclick' -> 'data-bead-event-onclick'
-            attrs += f' data-bead-event-{key}="{value}"'
+            attrs += f' data-bead-event-{key}="{escape_html(str(value))}"'
             
     # Özel stil toplama işlemini burada yapıyoruz
     if "custom_style" in props and props["custom_style"] is not None:
@@ -41,16 +48,16 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
 
     # Sınıf toplama işlemini burada yapıyoruz
     if "style" in props and props["style"] is not None:
-        attrs += f' class="{props["style"]}"'
+        attrs += f' class="{escape_html(props["style"])}"'
         # Stilleri çıkar ve kümeye ekle
         found_classes = extract_classes(f'class="{props["style"]}"')
         utility_classes.update(found_classes)
 
     if "id" in props and props["id"] is not None:
-      attrs += f' id="{props["id"]}"'
+      attrs += f' id="{escape_html(props["id"])}"'
       
     if "href" in props:
-        attrs += f' href="{props["href"]}"'
+        attrs += f' href="{escape_html(props["href"])}"'
     if "as_" in props:
         tag = props["as_"]
     else:
@@ -75,26 +82,26 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
     # Image bileşeni için özel işleme
     if component_type == "Image":
         if "src" in props:
-            attrs += f' src="{props["src"]}"'
+            attrs += f' src="{escape_html(props["src"])}"'
         if "alt" in props:
-            attrs += f' alt="{props["alt"]}"'
+            attrs += f' alt="{escape_html(props["alt"])}"'
         return f'<{tag}{attrs} />'
 
     # Link bileşeni için özel işleme
     if component_type == "Link":
-        label = props.get("label", "")
+        label = escape_html(props.get("label", ""))
         return f'<{tag}{attrs}>{label}</{tag}>'
 
     # Form bileşeni için özel işleme
     if component_type == "Form":
         if "action" in props:
-            attrs += f' action="{props["action"]}"'
+            attrs += f' action="{escape_html(props["action"])}"'
         if "method" in props:
-            attrs += f' method="{props["method"]}"'
+            attrs += f' method="{escape_html(props["method"])}"'
         
         # CSRF token'ı varsa gizli input olarak ekle
         if csrf_token is not None:
-            csrf_input = f'<input type="hidden" name="csrf_token" value="{csrf_token}" />'
+            csrf_input = f'<input type="hidden" name="csrf_token" value="{escape_html(csrf_token)}" />'
             children_html += csrf_input
             
         return f'<{tag}{attrs}>{children_html}</{tag}>'
@@ -102,25 +109,25 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
     # Input bileşeni için özel işleme
     if component_type == "Input":
         if "name" in props:
-            attrs += f' name="{props["name"]}"'
+            attrs += f' name="{escape_html(props["name"])}"'
         if "type" in props:
-            attrs += f' type="{props["type"]}"'
+            attrs += f' type="{escape_html(props["type"])}"'
         if "value" in props:
-            attrs += f' value="{props["value"]}"'
+            attrs += f' value="{escape_html(props["value"])}"'
         if "placeholder" in props:
-            attrs += f' placeholder="{props["placeholder"]}"'
+            attrs += f' placeholder="{escape_html(props["placeholder"])}"'
         return f'<{tag}{attrs} />'
 
     if component_type == "Page":
         # Page bileşeni özel bir yapıda olduğu için farklı render edilir
-        title = props.get("title", "Bead App")
+        title = escape_html(props.get("title", "Bead App"))
         meta_html = ""
         if "meta" in props and isinstance(props["meta"], dict):
             for name, content in props["meta"].items():
                 if name == "favicon":
-                    meta_html += f'    <link rel="icon" href="{content}" type="image/x-icon">\n'
+                    meta_html += f'    <link rel="icon" href="{escape_html(content)}" type="image/x-icon">\n'
                 else:
-                    meta_html += f'    <meta name="{name}" content="{content}">\n'
+                    meta_html += f'    <meta name="{escape_html(name)}" content="{escape_html(content)}">\n'
         
         body_content = "".join([render_component(child, utility_classes, csrf_token=csrf_token) for child in props["body"]])
         
@@ -134,11 +141,11 @@ def render_component(component: Component, utility_classes: set, csrf_token: Opt
         return (f"<!DOCTYPE html><html>{head_content}<body>{body_content}</body></html>")
 
     if component_type == "Text":
-        value = props.get("value", "")
+        value = escape_html(props.get("value", ""))
         return f'<{tag}{attrs}>{value}</{tag}>'
     
     if component_type == "Button":
-        label = props.get("label", "Button")
+        label = escape_html(props.get("label", "Button"))
         # onclick gibi event'ler için özel nitelikler ekleniyor
         return f'<{tag}{attrs}>{label}</{tag}>'
 
