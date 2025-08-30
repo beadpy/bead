@@ -8,6 +8,9 @@ _all_custom_styles = set()
 _all_utility_classes = set()
 
 def escape_html(text: str) -> str:
+    # NoneType hatasını engellemek için metnin varlığını kontrol edin
+    if text is None:
+        return ""
     return html.escape(text, quote=True)
 
 async def render_component(component: Component, utility_classes: set, csrf_token: Optional[str] = None) -> str:
@@ -37,8 +40,9 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
     if "id" in props and props["id"] is not None:
       attrs += f' id="{escape_html(props["id"])}"'
       
-    if "href" in props:
+    if "href" in props and props["href"] is not None:
         attrs += f' href="{escape_html(props["href"])}"'
+    
     if "as_" in props:
         tag = props["as_"]
     else:
@@ -55,10 +59,19 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
         }.get(component_type, "div")
 
     children_html = ""
-    if "children" in props and isinstance(props["children"], list):
-        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]]
+    # Çocukları listelerden veya adlandırılmış slot sözlüğünden al
+    children_prop = props.get("children", {})
+    if isinstance(children_prop, dict):
+        all_children = []
+        for slot_name, slot_children in children_prop.items():
+            if isinstance(slot_children, list):
+                all_children.extend(slot_children)
+        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in all_children]
         children_html = "".join(await asyncio.gather(*render_tasks))
-
+    elif isinstance(children_prop, list):
+        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in children_prop]
+        children_html = "".join(await asyncio.gather(*render_tasks))
+    
     if component_type == "Image":
         if "src" in props:
             attrs += f' src="{escape_html(props["src"])}"'
@@ -103,7 +116,7 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
                 else:
                     meta_html += f'    <meta name="{escape_html(name)}" content="{escape_html(content)}">\n'
         
-        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]]
+        render_tasks = [render_component(child, utility_classes, csrf_token=csrf_token) for child in props["children"]['default']]
         body_content = "".join(await asyncio.gather(*render_tasks))
         
         head_content = f"""

@@ -1,10 +1,14 @@
-from typing import Optional, List, Literal, Dict, Any
+from typing import Optional, List, Literal, Dict, Any, Union
 
 class Component:
-    def __init__(self, children: Optional[List['Component']] = None, **kwargs):
+    def __init__(self, children: Optional[Union[List['Component'], Dict[str, List['Component']]]] = None, **kwargs):
         self.props = kwargs
         if children is not None:
-            self.props['children'] = children
+            # Tek bir liste yerine adlandırılmış bir slot (varsayılan) olarak işleyin
+            if isinstance(children, list):
+                self.props['children'] = {'default': children}
+            else:
+                self.props['children'] = children
         self.component_type = self.__class__.__name__
 
     def render(self) -> str:
@@ -40,7 +44,7 @@ class Button(Component):
         return f'<{tag} class="{style}"{onclick}{href}>{label}</{tag}>'
 
 class Card(Component):
-    def __init__(self, children: List[Component], style: Optional[str] = None, custom_style: Optional[str] = None, id: Optional[str] = None, **kwargs):
+    def __init__(self, children: Union[List[Component], Dict[str, List[Component]]], style: Optional[str] = None, custom_style: Optional[str] = None, id: Optional[str] = None, **kwargs):
         super().__init__(children=children, style=style, custom_style=custom_style, id=id, **kwargs)
 
 class Stack(Component):
