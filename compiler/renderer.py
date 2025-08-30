@@ -77,6 +77,8 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
             attrs += f' src="{escape_html(props["src"])}"'
         if "alt" in props:
             attrs += f' alt="{escape_html(props["alt"])}"'
+        if "loading" in props and props["loading"] is not None:
+            attrs += f' loading="{escape_html(props["loading"])}"'
         return f'<{tag}{attrs} />'
 
     if component_type == "Link":

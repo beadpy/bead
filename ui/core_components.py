@@ -64,5 +64,5 @@ class Link(Component):
         super().__init__(label=label, href=href, style=style, custom_style=custom_style, **kwargs)
 
 class Image(Component):
-    def __init__(self, src: str, alt: str = "", style: Optional[str] = None, custom_style: Optional[str] = None, **kwargs):
-        super().__init__(src=src, alt=alt, style=style, custom_style=custom_style, **kwargs)
+    def __init__(self, src: str, alt: str = "", style: Optional[str] = None, custom_style: Optional[str] = None, loading: str = "lazy", **kwargs):
+        super().__init__(src=src, alt=alt, style=style, custom_style=custom_style, loading=loading, **kwargs)
