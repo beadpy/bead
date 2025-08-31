@@ -68,27 +68,23 @@ def process_component_call(node, file_path: str, line_no: int, col_offset: int):
     args = []
     children_dict = {}
     
-    # Pozisyonel argümanları işle
     for arg_node in node.args:
         args.append(process_ast_node_value(arg_node, file_path, arg_node.lineno, arg_node.col_offset))
         
     kwargs = {}
-    # Keyword argümanları işle, adlandırılmış slotları ayır
+    
     for keyword in node.keywords:
         key = keyword.arg
         value = process_ast_node_value(keyword.value, file_path, keyword.value.lineno, keyword.value.col_offset)
         
-        # Eğer bir bileşen listesiyse ve "children" anahtarı değilse, adlandırılmış slot olarak kabul et
         if isinstance(value, list) and key != "children":
             children_dict[key] = value
         else:
             kwargs[key] = value
 
-    # Geleneksel 'children' anahtarı varsa, 'default' slotuna ekle
     if 'children' in kwargs:
         children_dict['default'] = kwargs.pop('children')
     
-    # Adlandırılmış slotlar varsa, 'children' anahtarını bir sözlüğe dönüştür
     if children_dict:
         kwargs['children'] = children_dict
 

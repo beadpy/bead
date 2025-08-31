@@ -35,9 +35,7 @@ def get_app(project_path):
     app.state.config = config
     return app
 
-# Uvicorn'un 'reload' için çağıracağı yeni fabrika fonksiyonu
 def create_app():
-    # Bu fonksiyon, projenin kök dizinini bilmek için sys.path kullanır
     project_path = os.getcwd()
     return get_app(project_path)
 
@@ -58,8 +56,6 @@ def start_dev_server(project_path):
     print("Dosya değişiklikleri izleniyor...")
     print("CTRL+C tuşuna basarak çıkabilirsiniz.")
 
-    # Uvicorn'un yerleşik hot-reload özelliğini kullanın
-    # 'create_app' fonksiyonunun içe aktarma dizesini iletin
     uvicorn.run(
         "bead.server.dev_server:create_app",
         host="0.0.0.0",

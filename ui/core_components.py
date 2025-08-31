@@ -4,7 +4,6 @@ class Component:
     def __init__(self, children: Optional[Union[List['Component'], Dict[str, List['Component']]]] = None, **kwargs):
         self.props = kwargs
         if children is not None:
-            # Tek bir liste yerine adlandırılmış bir slot (varsayılan) olarak işleyin
             if isinstance(children, list):
                 self.props['children'] = {'default': children}
             else:

@@ -8,7 +8,6 @@ _all_custom_styles = set()
 _all_utility_classes = set()
 
 def escape_html(text: str) -> str:
-    # NoneType hatasını engellemek için metnin varlığını kontrol edin
     if text is None:
         return ""
     return html.escape(text, quote=True)
@@ -59,8 +58,8 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
         }.get(component_type, "div")
 
     children_html = ""
-    # Çocukları listelerden veya adlandırılmış slot sözlüğünden al
     children_prop = props.get("children", {})
+    
     if isinstance(children_prop, dict):
         all_children = []
         for slot_name, slot_children in children_prop.items():
