@@ -83,6 +83,8 @@ async def render_component(component: Component, utility_classes: set, csrf_toke
 
     if component_type == "Link":
         label = escape_html(props.get("label", ""))
+        if props.get("router_link"):
+            attrs += f' data-bead-router-link'
         return f'<{tag}{attrs}>{label}</{tag}>'
 
     if component_type == "Form":
@@ -161,7 +163,6 @@ async def render_page(component_tree: Component, utility_classes: set, csrf_toke
         return fromNode;
       }
       
-      // Update element attributes
       var toAttrs = toNode.attributes;
       var fromAttrs = fromNode.attributes;
 
@@ -179,7 +180,6 @@ async def render_page(component_tree: Component, utility_classes: set, csrf_toke
         }
       }
 
-      // Update children
       var fromChildren = Array.from(fromNode.childNodes);
       var toChildren = Array.from(toNode.childNodes);
 
@@ -190,8 +190,10 @@ async def render_page(component_tree: Component, utility_classes: set, csrf_toke
         var toChild = toChildren[i];
         if (i < fromChildrenLen) {
           var fromChild = fromChildren[i];
-          if (fromChild.nodeType === fromNode.TEXT_NODE && toChild.nodeType === toNode.TEXT_NODE) {
+          if (fromChild.nodeType === Node.TEXT_NODE && toChild.nodeType === Node.TEXT_NODE) {
             fromChild.nodeValue = toChild.nodeValue;
+          } else if (fromChild.nodeType !== toChild.nodeType || fromChild.tagName !== toChild.tagName) {
+            fromNode.replaceChild(toChild.cloneNode(true), fromChild);
           } else {
             morphdom(fromChild, toChild);
           }
@@ -208,6 +210,47 @@ async def render_page(component_tree: Component, utility_classes: set, csrf_toke
       return fromNode;
     }
 
+    function updateHead(newDoc) {
+      document.title = newDoc.title;
+      const newMetaTags = newDoc.head.querySelectorAll('meta');
+      const currentMetaTags = document.head.querySelectorAll('meta');
+      const newLinks = newDoc.head.querySelectorAll('link');
+      const currentLinks = document.head.querySelectorAll('link');
+
+      for(const newTag of newMetaTags) {
+        const currentTag = Array.from(currentMetaTags).find(t => t.name === newTag.name);
+        if (currentTag) {
+          if (currentTag.content !== newTag.content) {
+            currentTag.content = newTag.content;
+          }
+        } else {
+          document.head.appendChild(newTag.cloneNode(true));
+        }
+      }
+
+      for(const currentTag of currentMetaTags) {
+        if (!Array.from(newMetaTags).some(t => t.name === currentTag.name)) {
+          currentTag.remove();
+        }
+      }
+      
+      for(const newLink of newLinks) {
+        const currentLink = Array.from(currentLinks).find(l => l.href === newLink.href);
+        if (!currentLink) {
+          document.head.appendChild(newLink.cloneNode(true));
+        }
+      }
+      
+      for(const currentLink of currentLinks) {
+        if (!Array.from(newLinks).some(l => l.href === currentLink.href)) {
+          if (!currentLink.href.includes('/public/bead.css')) {
+            currentLink.remove();
+          }
+        }
+      }
+    }
+
+
     document.addEventListener('DOMContentLoaded', () => {
         document.body.addEventListener('click', (event) => {
             let target = event.target;
@@ -217,6 +260,12 @@ async def render_page(component_tree: Component, utility_classes: set, csrf_toke
             if (target && target.dataset.beadEventOnclick) {
                 event.preventDefault();
                 handleEvent(target, target.dataset.beadEventOnclick);
+            }
+
+            let routerLinkTarget = event.target.closest('[data-bead-router-link]');
+            if (routerLinkTarget && routerLinkTarget.href) {
+                event.preventDefault();
+                handleRouterLink(routerLinkTarget.href);
             }
         });
 
@@ -274,6 +323,47 @@ async def render_page(component_tree: Component, utility_classes: set, csrf_toke
                 console.error('Hata:', error);
             });
         }
+        
+        function handleRouterLink(href, isPopState = false) {
+            fetch(href, {
+                method: 'GET',
+                headers: {
+                    'X-Bead-Router': 'true' 
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.text();
+            })
+            .then(htmlContent => {
+                const parser = new DOMParser();
+                const newDoc = parser.parseFromString(htmlContent, 'text/html');
+                const newBody = newDoc.querySelector('body');
+                
+                if (newBody) {
+                    morphdom(document.body, newBody);
+                    updateHead(newDoc);
+                    if (!isPopState) {
+                        window.history.pushState({}, '', href);
+                    }
+                } else {
+                    console.error('Yeni sayfa gövdesi bulunamadı.');
+                }
+            })
+            .catch(error => {
+                console.error('Rota geçişi sırasında hata:', error);
+                if (!isPopState) {
+                   window.location.href = href;
+                }
+            });
+        }
+        
+        window.addEventListener('popstate', (event) => {
+            handleRouterLink(window.location.href, true);
+        });
+
     });
     </script>
     """

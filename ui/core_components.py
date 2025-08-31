@@ -60,9 +60,9 @@ class Form(Component):
         super().__init__(children=children, action=action, method=method, onsubmit=onsubmit, style=style, custom_style=custom_style, schema=schema, csrf_token=csrf_token, **kwargs)
 
 class Link(Component):
-    def __init__(self, label: str, href: str, style: Optional[str] = None, custom_style: Optional[str] = None, **kwargs):
-        super().__init__(label=label, href=href, style=style, custom_style=custom_style, **kwargs)
+    def __init__(self, label: str, href: str, style: Optional[str] = None, custom_style: Optional[str] = None, router_link: bool = False, **kwargs):
+        super().__init__(label=label, href=href, style=style, custom_style=custom_style, router_link=router_link, **kwargs)
 
 class Image(Component):
     def __init__(self, src: str, alt: str = "", style: Optional[str] = None, custom_style: Optional[str] = None, loading: str = "lazy", **kwargs):
-        super().__init__(src=src, alt=alt, style=style, custom_style=custom_style, loading=loading, **kwargs)
+        super().__init__(src=src, alt=alt, style=style, custom_style=custom_style, loading=loading, **kwargs)   
