@@ -11,12 +11,12 @@ import time
 import asyncio
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, EVENT_TYPE_MODIFIED
-import socket
 
 from .router import get_routes
 from .middleware import LoggingMiddleware, SecurityHeadersMiddleware
 from bead.compiler.parser import clear_cache
 from bead.config import load_config
+from bead.state.state import State  # Yeni import satırı
 
 async def not_found(request, exc):
     return HTMLResponse("<h1>404 Sayfa Bulunamadı</h1>", status_code=404)
@@ -33,6 +33,10 @@ def get_app(project_path):
     app = Starlette(debug=True, routes=routes, exception_handlers={404: not_found}, middleware=middleware)
     app.state.project_path = project_path
     app.state.config = config
+    
+    # Global state'i uygulama durumuna ekliyoruz
+    app.state.global_state = State({"user_count": 0, "app_name": "Bead App"})
+
     return app
 
 def create_app():
